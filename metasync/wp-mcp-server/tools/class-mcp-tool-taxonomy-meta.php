@@ -105,6 +105,8 @@ class MCP_Tool_Get_Term_Meta extends MCP_Tool_Base {
             'last_update' => get_term_meta($term_id, '_metasync_otto_last_update', true),
         ];
 
+        $link = get_term_link($term);
+
         return $this->success([
             'term_id' => $term_id,
             'term_name' => $term->name,
@@ -113,7 +115,9 @@ class MCP_Tool_Get_Term_Meta extends MCP_Tool_Base {
             'description' => $term->description,
             'count' => $term->count,
             'parent' => $term->parent,
-            'url' => get_term_link($term),
+            // get_term_link() can return a WP_Error (e.g. a broken term
+            // taxonomy); null keeps the error object out of the JSON payload.
+            'url' => is_wp_error($link) ? null : $link,
             'seo_meta' => $seo_meta,
             'opengraph_meta' => $opengraph_meta,
             'twitter_meta' => $twitter_meta,
@@ -585,7 +589,7 @@ class MCP_Tool_Bulk_Update_Term_Meta extends MCP_Tool_Base {
 /**
  * List Terms with SEO Meta Tool
  *
- * Lists all terms with their SEO metadata for a taxonomy
+ * Lists terms (paginated via number/offset) with their SEO metadata for a taxonomy
  */
 class MCP_Tool_List_Terms_With_Meta extends MCP_Tool_Base {
 
@@ -594,7 +598,7 @@ class MCP_Tool_List_Terms_With_Meta extends MCP_Tool_Base {
     }
 
     public function get_description() {
-        return 'List all terms for a taxonomy with their SEO metadata. Useful for auditing category/tag SEO.';
+        return 'List terms for a taxonomy with their SEO metadata, paginated with number/offset (default 100 per page, max 500). Stats describe the returned page only. With hide_empty true, empty parent categories that have populated children are not retained. total_terms and has_more are null when the taxonomy count fails. Useful for auditing category/tag SEO.';
     }
 
     public function get_input_schema() {
@@ -619,6 +623,16 @@ class MCP_Tool_List_Terms_With_Meta extends MCP_Tool_Base {
                     'enum' => ['ASC', 'DESC'],
                     'description' => 'Sort order (default: ASC)',
                 ],
+                'number' => [
+                    'type' => 'integer',
+                    'default' => 100,
+                    'description' => 'Maximum number of terms to return (default: 100, max: 500)',
+                ],
+                'offset' => [
+                    'type' => 'integer',
+                    'default' => 0,
+                    'description' => 'Number of terms to skip, for pagination (default: 0)',
+                ],
             ],
             'required' => ['taxonomy'],
         ];
@@ -639,18 +653,50 @@ class MCP_Tool_List_Terms_With_Meta extends MCP_Tool_Base {
         }
 
         // Get terms
+        // Bound the result set so a single call cannot exhaust PHP memory on
+        // sites with very large taxonomies (same clamp as the list
+        // categories/tags tools).
+        $number = isset($params['number']) ? min(max(intval($params['number']), 1), 500) : 100;
+        $offset = isset($params['offset']) ? max(intval($params['offset']), 0) : 0;
+
+        // hierarchical=false keeps the LIMIT in SQL. With the WP default
+        // (hierarchical=true) WP_Term_Query drops the SQL limit for
+        // hierarchical taxonomies, hydrates every term in PHP, and only
+        // applies number/offset afterwards via array slicing — the memory
+        // blow-up this fix exists to prevent. It also matches wp_count_terms()
+        // (which counts with hierarchical=false): with hide_empty=true an
+        // empty parent holding populated children is not retained, consistent
+        // with the reported total.
+        // WP_Term_Query only sorts on a single column, so ties on the caller's
+        // sort key (equal names, or the mass of count=0 terms) have no stable
+        // order across LIMIT/OFFSET pages. The core get_terms_orderby filter
+        // appends t.term_id as a deterministic tiebreaker so paging never
+        // skips or duplicates tied terms.
+        $needs_tiebreaker = $orderby !== 'id';
+        if ($needs_tiebreaker) {
+            add_filter('get_terms_orderby', ['MCP_Tool_List_Terms_With_Meta', 'append_term_id_tiebreaker']);
+        }
         $terms = get_terms([
             'taxonomy' => $taxonomy,
             'hide_empty' => $hide_empty,
             'orderby' => $orderby,
             'order' => $order,
+            'number' => $number,
+            'offset' => $offset,
+            'hierarchical' => false,
         ]);
+        if ($needs_tiebreaker) {
+            remove_filter('get_terms_orderby', ['MCP_Tool_List_Terms_With_Meta', 'append_term_id_tiebreaker']);
+        }
 
         if (is_wp_error($terms)) {
             throw new Exception('Failed to retrieve terms: ' . $terms->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         $terms_data = [];
+        // Page-scoped stats only: they describe the returned page, not the
+        // whole taxonomy. Callers that need totals can page through via
+        // offset and read total_terms/has_more.
         $stats = [
             'with_meta_title' => 0,
             'with_meta_description' => 0,
@@ -670,13 +716,17 @@ class MCP_Tool_List_Terms_With_Meta extends MCP_Tool_Base {
             if ($og_enabled === '1' && !empty($og_title)) $stats['with_og_data']++;
             if (empty($meta_title) && empty($meta_desc)) $stats['missing_seo']++;
 
+            // get_term_link() can return a WP_Error; never carry an error
+            // object into the JSON payload.
+            $link = get_term_link($term);
+
             $terms_data[] = [
                 'term_id' => $term->term_id,
                 'name' => $term->name,
                 'slug' => $term->slug,
                 'count' => $term->count,
                 'parent' => $term->parent,
-                'url' => get_term_link($term),
+                'url' => is_wp_error($link) ? null : $link,
                 'seo_status' => [
                     'has_meta_title' => !empty($meta_title),
                     'has_meta_description' => !empty($meta_desc),
@@ -690,11 +740,40 @@ class MCP_Tool_List_Terms_With_Meta extends MCP_Tool_Base {
             ];
         }
 
+        // Release the term objects now that the response payload is built.
+        unset($terms);
+
+        // Real taxonomy size, so callers can page through with number/offset.
+        // When the count fails, total_terms/has_more are reported as null
+        // (unknown) instead of falling back to the page size — a bogus total
+        // would flip has_more to false mid-walk and silently truncate paging.
+        $count = wp_count_terms(['taxonomy' => $taxonomy, 'hide_empty' => $hide_empty]);
+        $total = is_wp_error($count) ? null : (int) $count;
+        $returned = count($terms_data);
+
         return $this->success([
             'taxonomy' => $taxonomy,
-            'total_terms' => count($terms_data),
+            'number' => $number,
+            'offset' => $offset,
+            'total_terms' => $total,
+            'returned' => $returned,
+            'has_more' => $total === null ? null : ($offset + $returned) < $total,
             'stats' => $stats,
             'terms' => $terms_data,
         ]);
+    }
+
+    /**
+     * get_terms_orderby filter callback: append t.term_id as a secondary sort
+     * so LIMIT/OFFSET paging is deterministic when the primary sort key ties.
+     *
+     * @param string $orderby SQL ORDER BY column expression from WP_Term_Query.
+     * @return string ORDER BY expression with the term_id tiebreaker appended.
+     */
+    public static function append_term_id_tiebreaker($orderby) {
+        if ($orderby === '' || strpos($orderby, 't.term_id') !== false) {
+            return $orderby;
+        }
+        return $orderby . ', t.term_id';
     }
 }

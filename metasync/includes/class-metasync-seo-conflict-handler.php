@@ -154,6 +154,32 @@ class Metasync_SEO_Conflict_Handler {
     }
 
     /**
+     * Whether this post's sync stamp belongs to a plugin that is still
+     * active — i.e. a plugin that can actually emit the synced values.
+     *
+     * A stamp left behind by a plugin the user has deactivated (switched
+     * away from) must not be treated as an active hand-off: no plugin is
+     * rendering that storage, so MetaSync keeps ownership of the output.
+     */
+    public function synced_plugin_is_active($post_id) {
+        if ($post_id <= 0) {
+            return false;
+        }
+        $this->ensure_plugin_api();
+        $active = [
+            'yoast'    => is_plugin_active('wordpress-seo/wp-seo.php') || is_plugin_active('wordpress-seo-premium/wp-seo-premium.php'),
+            'rankmath' => is_plugin_active('seo-by-rank-math/rank-math.php') || is_plugin_active('seo-by-rankmath/rank-math.php'),
+            'aioseo'   => is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') || is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php'),
+        ];
+        foreach ($active as $slug => $is_active) {
+            if ($is_active && $this->is_post_synced($post_id, $slug)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Whether an active third-party SEO plugin actually holds a
      * non-empty meta description for this post in its OWN storage.
      *
@@ -993,28 +1019,20 @@ class Metasync_SEO_Conflict_Handler {
             return false;
         }
 
-        // Both storage formats below hold common-half directives (noindex,
-        // nofollow, noarchive, nosnippet, noimageindex). With that half switched
-        // off the emitter drops every one of them, so claiming the tag here
-        // would suppress the third party's robots tag and then emit nothing —
-        // leaving a page that asked to be noindex fully indexable. The advanced
-        // half being on does not help: it owns only the max-* directives, which
-        // neither of these keys carries.
-        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::COMMON_ROBOTS)) {
-            return false;
-        }
-
-        $meta_robots = get_post_meta($post_id, 'meta_robots', true);
-        if (!empty($meta_robots)) {
-            return true;
-        }
-
-        $common_robots = get_post_meta($post_id, 'metasync_common_robots', true);
-        if (is_array($common_robots) && !empty(array_filter($common_robots))) {
-            return true;
-        }
-
-        return false;
+        // Delegate to the output layer's own resolution so "MetaSync holds a
+        // robots value" means exactly "MetaSync would emit a robots tag". The
+        // resolver reads every storage format — meta_robots (REST),
+        // metasync_common_robots and metasync_advance_robots (meta boxes),
+        // _metasync_robots_index and _metasync_robots_advanced (sidebar) —
+        // and honours the Common/Advanced feature switches the same way
+        // emission does, so this decision can never drift from what the page
+        // actually renders. Before this delegation the check consulted only
+        // meta_robots and metasync_common_robots, so a sidebar-set value was
+        // invisible here: MetaSync emitted its tag while the third-party
+        // suppression never fired, shipping two contradictory robots tags.
+        return Metasync_Seo_Output::holds_robots_value(
+            Metasync_Seo_Output::robots_meta_snapshot($post_id)
+        );
     }
 
     /**
@@ -1241,6 +1259,78 @@ class Metasync_SEO_Conflict_Handler {
 
         // Canonical — override Yoast's canonical with the MetaSync/OTTO value when set
         add_filter('wpseo_canonical', [$this, 'filter_yoast_canonical'], 999);
+
+        // Robots — suppress Yoast's directives when MetaSync holds an
+        // intentional robots value for the post, mirroring the AIOSEO/Rank
+        // Math paths. On modern Yoast the directives reach the page through
+        // core's wp_robots filter (Yoast merges its presentation there at
+        // PHP_INT_MAX - 10 and drops its own presenter), and that
+        // presentation is built in two filterable stages: wpseo_robots
+        // carries the directive string before it is keyed back into an
+        // array, and wpseo_robots_array carries the final array the
+        // presenter/wp_robots integration consumes. Both stages are
+        // suppressed so no Yoast version re-introduces the tag, and an
+        // empty result at either stage leaves the page with nothing for
+        // Yoast to contribute — exactly one robots tag, MetaSync's.
+        add_filter('wpseo_robots', [$this, 'filter_yoast_robots'], 999);
+        add_filter('wpseo_robots_array', [$this, 'filter_yoast_robots_array'], 999);
+    }
+
+    /**
+     * Filter Yoast's robots output (string stage).
+     *
+     * When MetaSync holds an intentional robots value, suppress Yoast's
+     * directives to avoid duplicates; MetaSync's own output in
+     * hook_metasync_metatags() emits the single remaining tag. The
+     * suppression decision is shared with the AIOSEO and Rank Math paths so
+     * all three plugins behave identically.
+     *
+     * Returning '' suppresses the tag: Yoast's filter_robots() explodes the
+     * string, finds nothing directive-shaped, and returns an empty array,
+     * which its presenter (and the wp_robots integration) renders as no tag
+     * at all. The noindex floor mirrors the Rank Math path: when the site
+     * forces a noindex outside per-post settings (a non-public site or a
+     * ?replytocom= URL), a bare noindex/nofollow survives so the page stays
+     * deindexed even though MetaSync replaces every other directive. The
+     * floor string round-trips through Yoast's own parsing into the keyed
+     * array shape its boolean-false branch produces.
+     *
+     * @param  string $robots Yoast's computed robots directive string.
+     * @return string
+     */
+    public function filter_yoast_robots($robots) {
+        if ($this->should_suppress_third_party_robots('yoast')) {
+            if ($this->site_forces_noindex()) {
+                return 'noindex, nofollow';
+            }
+            return '';
+        }
+
+        return $robots;
+    }
+
+    /**
+     * Filter Yoast's robots output (array stage).
+     *
+     * Shares the suppression decision with filter_yoast_robots(); the array
+     * stage runs last inside Yoast's presentation, so covering it stops any
+     * later callback from re-adding directives after the string-stage
+     * suppression. Returning an empty array renders no tag; the floor shape
+     * matches the keyed array Yoast itself produces for the same forced-
+     * noindex situation.
+     *
+     * @param  array $robots Yoast's computed robots directives, keyed.
+     * @return array
+     */
+    public function filter_yoast_robots_array($robots) {
+        if ($this->should_suppress_third_party_robots('yoast')) {
+            if ($this->site_forces_noindex()) {
+                return ['index' => 'noindex', 'follow' => 'nofollow'];
+            }
+            return [];
+        }
+
+        return $robots;
     }
 
     /**

@@ -190,10 +190,23 @@ class Metasync_Sync_Requests
         $this->saveHeartBeatError('categories', 'The limit of categories is exceeded', $new_categories, $categories_sync_limit);
 
         # Build the users payload. Honors the Content Genius role filter
-        # (content_genius_sync_roles) but falls back to all users when the filter
-        # matches nobody — an empty users list makes the backend reject the whole
-        # sync with HTTP 400. See build_users_payload().
+        # (content_genius_sync_roles). When a configured role matches nobody the
+        # list is empty, and an empty users list makes the backend reject the
+        # whole heartbeat with HTTP 400, which flips the site to "Not Connected".
+        # Sending every user instead would hand Search Atlas users the owner never
+        # chose. So the heartbeat still goes out (the connection must stay up) but
+        # the users key is left off entirely: the backend keeps the user list it
+        # already has rather than replacing it with nothing. This is a healthy
+        # state, not an error, so it is not written to the heartbeat error log:
+        # that table wipes itself once it holds 30 rows, and a row per heartbeat
+        # would erase real errors. A site with no role filter and genuinely no
+        # filter and genuinely no users keeps the old behavior, because an empty
+        # selection means "all users", not "pause".
         $new_users = $this->build_users_payload($general_options);
+        $configured_roles = $general_options['content_genius_sync_roles'] ?? array();
+        $role_filter_active = (is_array($configured_roles) && $configured_roles !== array() && !in_array('all', $configured_roles, true))
+            || (is_string($configured_roles) && $configured_roles !== '' && $configured_roles !== 'all');
+        $omit_users = ($new_users === array() && $role_filter_active);
 
         $this->saveHeartBeatError('users', 'The limit of users is exceeded', $new_users, $users_sync_limit);
         $current_permalink_structure = get_option('permalink_structure');
@@ -203,11 +216,17 @@ class Metasync_Sync_Requests
             'url' => get_home_url(),
             'api_key' => Metasync::get_plugin_auth_token(),
             'categories' => $new_categories,
-            'users' => $new_users,
             'version'=>constant('METASYNC_VERSION'),
             'permalink_structure'=>((($current_permalink_structure == '/%post_id%/' || $current_permalink_structure == '') && $current_rewrite_rules == '')?false:true),
             'otto_pixel_uuid' => $general_options['otto_pixel_uuid'] ?? '',
         ];
+
+        # Only attach users when there is a real list to send. Omitting the key
+        # (rather than sending an empty list) is what keeps the heartbeat accepted
+        # when the role filter matches nobody.
+        if (!$omit_users) {
+            $payload['users'] = $new_users;
+        }
 
         if (Metasync_Headless_Config::is_active()) {
             $payload['frontend_domain'] = Metasync_Headless_Config::get_frontend_domain();
@@ -318,16 +337,17 @@ class Metasync_Sync_Requests
     /**
      * Build the users payload for the heartbeat/sync request.
      *
-     * Honors the Content Genius role filter (content_genius_sync_roles). The
-     * critical guarantee: the returned list is never left empty because the
-     * role filter matched nobody. The Search Atlas heartbeat endpoint rejects
-     * an empty `users` list with HTTP 400 ("users: This field is required."),
-     * which fails the ENTIRE sync — flipping the site to "Not Connected" and
-     * blocking Content Genius. So when a role filter is configured but matches
-     * zero users on the site, we fall back to all users (the same set sent when
-     * no filter is configured) so a role preference can never sever the
-     * connection. (If the site genuinely has no users at all, the list can
-     * still be empty — but that cannot happen on a real WordPress install.)
+     * Honors the Content Genius role filter (content_genius_sync_roles).
+     *
+     * Returns an empty list when a role filter is configured but matches no
+     * users. The caller then leaves the `users` key off the heartbeat POST
+     * entirely: the endpoint rejects an empty `users` list with HTTP 400
+     * ("users: This field is required."), which would fail the whole sync and
+     * flip the site to "Not Connected", but sending every user instead would
+     * hand Search Atlas users the site owner never chose. Omitting the key
+     * keeps the heartbeat healthy without widening the selection. (A site with
+     * no users at all also returns an empty list, which cannot happen on a real
+     * WordPress install.)
      *
      * @param array         $general_options  The plugin 'general' options array.
      * @param callable|null $user_fetcher     Fetches users for a WP_User_Query
@@ -343,14 +363,15 @@ class Metasync_Sync_Requests
         $user_fetcher     = $user_fetcher ?? 'get_users';
         $userdata_fetcher = $userdata_fetcher ?? 'get_userdata';
 
-        # Get selected roles for Content Genius sync with safety checks
-        $selected_roles = isset($general_options['content_genius_sync_roles']) && is_array($general_options['content_genius_sync_roles'])
-            ? $general_options['content_genius_sync_roles']
-            : array();
-
-        # If it's a string (single role from old version), convert to array
+        # Get selected roles for Content Genius sync. Older plugin versions
+        # stored a single role as a plain string; treat that as a one-role
+        # selection instead of discarding it, which used to sync every user.
+        $selected_roles = $general_options['content_genius_sync_roles'] ?? array();
+        if (is_string($selected_roles)) {
+            $selected_roles = $selected_roles === '' ? array() : array($selected_roles);
+        }
         if (!is_array($selected_roles)) {
-            $selected_roles = !empty($selected_roles) ? array($selected_roles) : array();
+            $selected_roles = array();
         }
 
         # Sanitize role values to prevent injection
@@ -380,17 +401,8 @@ class Metasync_Sync_Requests
             $users = array();
         }
 
-        # Never send an empty users list: when the configured role filter matches
-        # no users, drop the filter and sync all users so connectivity is never
-        # broken by a role preference. (Root cause of the "Not Connected" + no
-        # Content Genius sync report.)
-        if (empty($users) && isset($user_query_args['role__in'])) {
-            unset($user_query_args['role__in']);
-            $users = $user_fetcher($user_query_args);
-            if (!is_array($users)) {
-                $users = array();
-            }
-        }
+        # A configured role that matches nobody is reported empty. The caller
+        # skips the sync rather than sending all users or failing the heartbeat.
 
         # Get the default user role from WordPress settings (fallback to administrator)
         $default_role = get_option('default_role', 'administrator');

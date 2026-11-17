@@ -212,8 +212,16 @@ class MCP_Tool_Trigger_Otto_Optimization extends MCP_Tool_Base {
             if (!class_exists('Metasync_Edge_Cache_Purge')) {
                 return ['success' => false, 'reason' => 'not_available'];
             }
-            Metasync_Edge_Cache_Purge::purge([$url]);
-            return true;
+            $edge_purge = Metasync_Edge_Cache_Purge::purge([$url]);
+            if (is_array($edge_purge)) {
+                return [
+                    'success' => !empty($edge_purge['ok']),
+                    'status' => $edge_purge['status'],
+                    'edge_purge' => $edge_purge,
+                    'eviction_confirmed' => false,
+                ];
+            }
+            return ['success' => $edge_purge !== false, 'status' => 'unconfirmed', 'eviction_confirmed' => false];
         });
 
         return $this->success(
@@ -468,11 +476,11 @@ class MCP_Tool_Verify_SEO_Output extends MCP_Tool_Base {
         $post_id = (int) url_to_postid($url);
 
         // Fetch the live HTML
-        $response = wp_remote_get($url, [
+        $response = wp_safe_remote_get($url, [
             'timeout' => 15,
             'redirection' => 5,
             'user-agent' => 'MetaSync-Verify/1.0',
-            'sslverify' => false,
+            'sslverify' => true,
         ]);
 
         if (is_wp_error($response)) {

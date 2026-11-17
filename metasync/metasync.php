@@ -14,8 +14,9 @@
  * @wordpress-plugin
  * Plugin Name:       Search Atlas SEO - OTTO AI SEO Automation for WordPress
  * Plugin URI:        https://searchatlas.com/
- * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.7.6
+ * Description:       AI-powered SEO & GEO for WordPress: OTTO auto-optimizes meta, schema & content, and helps you rank on Google and in AI search.
+ * Version:           2.7.7
+ * Requires at least: 6.3
  * Requires PHP:      8.1
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
@@ -58,7 +59,7 @@ require_once __DIR__ . '/includes/class-metasync-seo-restore.php';
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.7.6';
+$metasync_version = '2.7.7';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -67,10 +68,12 @@ define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metas
 define('METASYNC_MIN_PHP', '8.1');
 
 /**
- * Define the current required php version 
- * This will be used to validate whether the user can install the plugin or not
+ * Define the current required WordPress version
+ * This will be used to validate whether the user can activate the plugin or not.
+ * Must stay in sync with "Requires at least" in the header above and with
+ * readme.txt ("Requires at least") on the published build.
  */
-define('METASYNC_MIN_WP', '5.2');
+define('METASYNC_MIN_WP', '6.3');
 
 /**
  * Telemetry Configuration Constants
@@ -794,6 +797,7 @@ add_action('wp_head', 'metasync_output_dyo_init_flag', 1);
 // events can use the same consent gate as admin analytics.
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-posthog.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-analytics-consent-notice.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-mcp-key-notice.php';
 
 /**
  * Runtime feature initialisers (GA4, API backoff, review notice, JWT accessor,

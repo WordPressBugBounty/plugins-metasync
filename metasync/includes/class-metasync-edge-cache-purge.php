@@ -91,262 +91,407 @@ class Metasync_Edge_Cache_Purge {
      *                    or an array of strings; anything else is ignored.
      */
     public static function purge($urls) {
-        // Normalise a single URL string to a one-element array.
-        if (is_string($urls)) {
-            $urls = array($urls);
-        }
-
-        if (!is_array($urls) || empty($urls)) {
-            return;
-        }
-
         try {
-            self::get_instance()->purge_urls($urls);
+            if (is_string($urls)) {
+                $urls = array($urls);
+            }
+            if (!is_array($urls) || !$urls) {
+                return self::summary(array(), 'skipped');
+            }
+            return self::get_instance()->purge_urls($urls);
         } catch (\Throwable $e) {
-            self::log_error('purge', $e->getMessage());
+            // Exception messages can contain request URLs/credentials.
+            self::terminal_failure('purge', 'unexpected_' . get_class($e));
+            return self::summary(array(array('accepted' => 0, 'deferred' => 0, 'failed' => 1, 'skipped' => 0)));
         }
     }
 
-    /**
-     * Purge edge caches for a list of URLs.
-     *
-     * Resolves URLs to post IDs where possible for tag-based purging.
-     * Falls back to URL-based purging when IDs can't be resolved.
-     *
-     * @param array $urls Absolute URLs modified by OTTO.
-     */
-    public function purge_urls(array $urls) {
-        $settings = $this->get_settings();
+    const PENDING_OPTION = 'metasync_edge_cache_pending_urls';
+    const LOCK_OPTION = 'metasync_edge_cache_purge_lock';
+    const DRAINER_HOOK = 'metasync_edge_cache_purge_drainer';
+    const MAX_PENDING = 500;
+    const MAX_ATTEMPTS = 4;
 
-        // Resolve URLs → post IDs for tag-based providers
-        $post_ids = array();
-        $unresolved_urls = array();
+    /** Register recovery on every runtime, including WP-Cron. */
+    public static function init_hooks() {
+        add_action(self::DRAINER_HOOK, array(__CLASS__, 'handle_pending_drainer'));
+        // Recover work left behind by a terminated PHP worker or a failed cron write.
+        self::schedule_pending();
+    }
 
+    public static function handle_pending_drainer() {
+        self::purge_pending();
+    }
+
+    private static function purge_pending() {
+        try {
+            self::get_instance()->purge_urls(array());
+        } catch (\Throwable $e) {
+            self::terminal_failure('drainer', 'unexpected_' . get_class($e));
+        } finally {
+            self::schedule_pending();
+        }
+    }
+
+    /** API acceptance is NOT confirmation of cache eviction. Counts are URL work items. */
+    private static function summary(array $providers, $empty_status = 'no_providers') {
+        $counts = array('accepted' => 0, 'deferred' => 0, 'failed' => 0, 'skipped' => 0);
+        foreach ($providers as &$outcome) {
+            foreach ($counts as $key => $unused) {
+                $counts[$key] += $outcome[$key];
+            }
+            $outcome['status'] = self::outcome_status($outcome, 'skipped');
+        }
+        unset($outcome);
+        $status = self::outcome_status($counts, $empty_status);
+        return array('status' => $status, 'ok' => $counts['failed'] === 0,
+            'counts' => $counts, 'providers' => $providers, 'eviction_confirmed' => false);
+    }
+
+    private static function outcome_status(array $counts, $empty) {
+        if ($counts['failed']) {
+            return ($counts['accepted'] || $counts['deferred']) ? 'partial' : 'failed';
+        }
+        if ($counts['deferred']) {
+            return 'deferred';
+        }
+        return $counts['accepted'] ? 'accepted' : ($counts['skipped'] ? 'skipped' : $empty);
+    }
+
+    /** Only site-owned HTTP(S) origins may receive the Fastly credential. No redirects. */
+    private function normalize_urls(array $urls) {
+        $origins = array(home_url('/'), site_url('/'));
+        if (class_exists('Metasync_Headless_Config') && Metasync_Headless_Config::is_active()) {
+            $origins[] = Metasync_Headless_Config::get_frontend_domain();
+        }
+        $hosts = array();
+        foreach ($origins as $origin) {
+            $hosts[] = strtolower((string) wp_parse_url($origin, PHP_URL_HOST));
+        }
+        $valid = array();
+        $rejected = 0;
         foreach ($urls as $url) {
-            $post_id = url_to_postid($url);
-            if ($post_id > 0) {
-                $post_ids[] = $post_id;
-            } else {
-                $unresolved_urls[] = $url;
+            if (!is_string($url) || preg_match('/[\x00-\x20\x7f\\\\]/', $url)) {
+                $rejected++;
+                continue;
             }
-        }
-
-        $post_ids = array_unique($post_ids);
-
-        // Tag-based CDN providers (prefer tags, fall back to URLs)
-        if (!empty($settings['cloudflare_enabled']) && $this->has_credentials('cloudflare')) {
-            $this->purge_cloudflare($post_ids, $unresolved_urls, $settings);
-        }
-
-        if (!empty($settings['fastly_enabled']) && $this->has_credentials('fastly')) {
-            $this->purge_fastly($post_ids, $settings);
-        }
-
-        if (!empty($settings['akamai_enabled']) && $this->has_credentials('akamai')) {
-            $this->purge_akamai($post_ids, $settings);
-        }
-
-        // Full-flush providers (fire once per batch, not per URL)
-        if (!empty($settings['sucuri_enabled']) && $this->has_credentials('sucuri')) {
-            $this->purge_sucuri($settings);
-        }
-
-        if (!empty($settings['sevalla_enabled']) && $this->has_credentials('sevalla')) {
-            // Only if KinstaCache mu-plugin is NOT available
-            if (!class_exists('KinstaCache')) {
-                $this->purge_sevalla($settings);
+            $parts = wp_parse_url($url);
+            if (!$parts || empty($parts['host']) || empty($parts['scheme'])
+                || !in_array(strtolower($parts['scheme']), array('http', 'https'), true)
+                || !in_array(strtolower($parts['host']), $hosts, true)
+                || isset($parts['user']) || isset($parts['pass'])
+                || (isset($parts['port']) && $parts['port'] !== (strtolower($parts['scheme']) === 'https' ? 443 : 80))) {
+                $rejected++;
+                continue;
             }
+            $normalized = strtolower($parts['scheme']) . '://' . strtolower($parts['host'])
+                . ($parts['path'] ?? '/') . (isset($parts['query']) ? '?' . $parts['query'] : '');
+            // One URL must fit within the Akamai JSON byte budget.
+            if (strlen(wp_json_encode(array('objects' => array($normalized)))) > 45000) {
+                $rejected++;
+                continue;
+            }
+            $valid[$normalized] = $normalized;
         }
+        return array(array_values($valid), $rejected);
+    }
 
-        // Hosting-level providers
-        if (!empty($settings['cloudways_enabled'])) {
-            $this->purge_cloudways($urls);
-        }
-
-        if (!empty($settings['flywheel_enabled']) && defined('FLYWHEEL_CONFIG_DIR')) {
-            $this->purge_flywheel();
+    /** Serialize queue and rate-budget mutations across requests using an option lock. */
+    public function purge_urls(array $urls) {
+        try {
+            return $this->execute_urls($urls);
+        } catch (\Throwable $e) {
+            self::terminal_failure('purge_urls', 'unexpected_' . get_class($e));
+            return self::summary(array('internal' => array('accepted' => 0, 'deferred' => 0, 'failed' => 1, 'skipped' => 0)));
         }
     }
 
-    /**
-     * Purge edge caches by post IDs (tag-based).
-     *
-     * @param array $post_ids WordPress post IDs.
-     */
-
-    // ──────────────────────────────────────────────────────────────
-    //  CDN Provider Implementations
-    // ──────────────────────────────────────────────────────────────
-
-    /**
-     * Purge Cloudflare via Cache-Tag API.
-     *
-     * Uses tag-based purge for resolved post IDs (up to 30 tags per request).
-     * Falls back to URL-based purge for unresolved URLs.
-     *
-     * @see https://developers.cloudflare.com/api/resources/cache/methods/purge/
-     *
-     * @param array $post_ids       Resolved post IDs.
-     * @param array $fallback_urls  URLs that couldn't be resolved to post IDs.
-     * @param array $settings       Edge cache settings.
-     */
-    private function purge_cloudflare(array $post_ids, array $fallback_urls, array $settings) {
-        $zone_id   = $settings['cloudflare_zone_id'];
-        $api_token = $settings['cloudflare_api_token'];
-        $endpoint  = 'https://api.cloudflare.com/client/v4/zones/' . urlencode($zone_id) . '/purge_cache';
-
-        $headers = array(
-            'Authorization' => 'Bearer ' . $api_token,
-            'Content-Type'  => 'application/json',
-        );
-
-        // Tag-based purge (chunked to 30 per request)
-        if (!empty($post_ids)) {
-            $tags = array_map(function ($id) {
-                return 'metasync-post-' . $id;
-            }, $post_ids);
-
-            foreach (array_chunk($tags, self::CF_MAX_TAGS_PER_REQUEST) as $chunk) {
-                $response = wp_remote_post($endpoint, array(
-                    'headers' => $headers,
-                    'body'    => wp_json_encode(array('tags' => $chunk)),
-                    'timeout' => self::API_TIMEOUT,
-                ));
-
-                if (is_wp_error($response)) {
-                    self::log_error('Cloudflare tag purge', $response->get_error_message());
-                } else {
-                    $code = wp_remote_retrieve_response_code($response);
-                    if ($code < 200 || $code >= 300) {
-                        self::log_error('Cloudflare tag purge', 'HTTP ' . $code);
+    private function execute_urls(array $urls) {
+        list($urls, $rejected) = $this->normalize_urls($urls);
+        $settings = $this->get_settings();
+        $providers = array();
+        if ($rejected) {
+            $providers['input'] = array('accepted' => 0, 'deferred' => 0, 'failed' => $rejected, 'skipped' => 0);
+        }
+        $lock = get_option(self::LOCK_OPTION, 0);
+        if ($lock && (int) $lock < time() - 600) {
+            delete_option(self::LOCK_OPTION);
+        }
+        if (!add_option(self::LOCK_OPTION, time(), '', false)) {
+            self::terminal_failure('queue', 'busy_retry_required');
+            $providers['queue'] = array('accepted' => 0, 'deferred' => 0, 'failed' => max(1, count($urls)), 'skipped' => 0);
+            return self::summary($providers);
+        }
+        try {
+            $pending = get_option(self::PENDING_OPTION, array());
+            if (!is_array($pending)) {
+                $pending = array();
+            }
+            foreach (array('fastly', 'akamai', 'cloudflare') as $provider) {
+                $entries = $pending[$provider] ?? array();
+                if (empty($settings[$provider . '_enabled']) && !$entries) {
+                    continue;
+                }
+                $out = array('accepted' => 0, 'deferred' => 0, 'failed' => 0, 'skipped' => 0);
+                if (empty($settings[$provider . '_enabled']) || !$this->has_credentials($provider)) {
+                    $out['failed'] = count($urls) + count($entries);
+                    if ($out['failed']) {
+                        self::terminal_failure($provider, 'disabled_or_missing_credentials');
                     }
+                    unset($pending[$provider]);
+                    $providers[$provider] = $out;
+                    continue;
+                }
+                foreach ($urls as $url) {
+                    $key = md5($url);
+                    if (isset($entries[$key])) {
+                        continue; // Preserve attempt count and Retry-After on repeated purges.
+                    }
+                    if (count($entries) >= self::MAX_PENDING) {
+                        $out['failed']++;
+                        self::terminal_failure($provider, 'queue_capacity');
+                    } else {
+                        $entries[$key] = array('url' => $url, 'attempts' => 0, 'next' => time());
+                    }
+                }
+                $pending[$provider] = $entries;
+                self::save_pending($pending); // Write ahead: process death cannot lose overflow.
+                $providers[$provider] = $this->process_provider($provider, $pending, $settings, $out);
+            }
+            self::save_pending($pending);
+            // Legacy full-flush/hosting providers retain their native behavior.
+            foreach (array('sucuri', 'sevalla', 'cloudways', 'flywheel') as $provider) {
+                if (!$urls || empty($settings[$provider . '_enabled'])) {
+                    continue;
+                }
+                $out = array('accepted' => 0, 'deferred' => 0, 'failed' => 0, 'skipped' => count($urls));
+                $result = null;
+                if ($provider === 'cloudways') {
+                    $result = $this->purge_cloudways($urls);
+                } elseif ($provider === 'flywheel' && defined('FLYWHEEL_CONFIG_DIR')) {
+                    $result = $this->purge_flywheel();
+                } elseif ($provider === 'sucuri' && $this->has_credentials('sucuri')) {
+                    $result = $this->purge_sucuri($settings);
+                } elseif ($provider === 'sevalla' && $this->has_credentials('sevalla') && !class_exists('KinstaCache')) {
+                    $result = $this->purge_sevalla($settings);
+                } elseif (in_array($provider, array('sucuri', 'sevalla'), true) && !$this->has_credentials($provider)) {
+                    $result = false;
+                }
+                if ($result !== null) {
+                    $out['skipped'] = 0;
+                    $out[$result ? 'accepted' : 'failed'] = count($urls);
+                    if (!$result) {
+                        self::terminal_failure($provider, 'provider_rejected');
+                    }
+                } else {
+                    $out['reason'] = 'native_provider_unavailable';
+                }
+                $providers[$provider] = $out;
+            }
+            return self::summary($providers, $urls ? 'no_providers' : 'skipped');
+        } finally {
+            delete_option(self::LOCK_OPTION);
+            self::schedule_pending();
+        }
+    }
+
+    private static function save_pending(array $pending) {
+        if (get_option(self::PENDING_OPTION, null) === $pending) {
+            return;
+        }
+        if (!update_option(self::PENDING_OPTION, $pending, false)) {
+            throw new \RuntimeException('edge_queue_write_failed');
+        }
+    }
+
+    private static function schedule_pending() {
+        $pending = get_option(self::PENDING_OPTION, array());
+        $next = null;
+        foreach ((array) $pending as $entries) {
+            foreach ($entries as $entry) {
+                $next = $next === null ? $entry['next'] : min($next, $entry['next']);
+            }
+        }
+        if ($next !== null && !wp_next_scheduled(self::DRAINER_HOOK)) {
+            $scheduled = wp_schedule_single_event(max(time() + 60, $next), self::DRAINER_HOOK, array(), true);
+            if (is_wp_error($scheduled)) {
+                self::terminal_failure('queue', 'cron_schedule_failed');
+            }
+        }
+    }
+
+    /** Conservative shared budgets, persisted across PHP workers (including tag calls).
+     * Fastly documents 1,000 URL purges/sec; Akamai URL invalidation 6,000/min,
+     * 50,000-byte bodies and 100 URLs/request. Stay well below those limits:
+     * 20 Fastly requests/min; 2 Akamai requests/min; <=50 URLs / 45KB JSON.
+     * https://www.fastly.com/documentation/reference/api/purging/
+     * https://techdocs.akamai.com/purge-cache/docs/fast-purge-limits
+     */
+    private function process_provider($provider, array &$pending, array $settings, array $out) {
+        $budget_key = 'metasync_edge_cache_budget_' . $provider;
+        $budget = get_option($budget_key, array());
+        if (empty($budget['until']) || $budget['until'] <= time()) {
+            $budget = array('until' => time() + 60, 'used' => 0);
+        }
+        $limit = $provider === 'fastly' ? 20 : 2;
+        foreach ($pending[$provider] as $key => $entry) {
+            list($valid) = $this->normalize_urls(array($entry['url']));
+            if (!$valid) {
+                unset($pending[$provider][$key]);
+                $out['failed']++;
+                self::terminal_failure($provider, 'queued_url_no_longer_allowed');
+            }
+        }
+        $entries = $pending[$provider];
+        $due = array_filter($entries, function ($entry) { return $entry['next'] <= time(); });
+        $ids = array();
+        if (!empty($settings['cache_tags_enabled'])) {
+            foreach ($due as $entry) {
+                if ($entry['attempts'] > 0 || !empty($entry['tag_attempted'])) {
+                    continue;
+                }
+                $id = url_to_postid($entry['url']);
+                if ($id > 0 && !(get_option('show_on_front') === 'page' && $id === (int) get_option('page_for_posts'))) {
+                    $ids[$id] = 'metasync-post-' . $id;
                 }
             }
         }
-
-        // URL-based fallback for unresolved URLs
-        if (!empty($fallback_urls)) {
-            foreach (array_chunk($fallback_urls, self::CF_MAX_TAGS_PER_REQUEST) as $chunk) {
-                $response = wp_remote_post($endpoint, array(
-                    'headers' => $headers,
-                    'body'    => wp_json_encode(array('files' => $chunk)),
-                    'timeout' => self::API_TIMEOUT,
-                ));
-
-                if (is_wp_error($response)) {
-                    self::log_error('Cloudflare URL purge', $response->get_error_message());
+        // Supplemental tags never substitute for URL coverage (historical objects may be untagged).
+        $tag_size = $provider === 'fastly' ? 256 : ($provider === 'akamai' ? 128 : 30);
+        if ($ids) {
+            foreach ($due as $key => $entry) {
+                $pending[$provider][$key]['tag_attempted'] = true;
+            }
+            self::save_pending($pending);
+        }
+        foreach (array_chunk(array_values($ids), $tag_size) as $tags) {
+            if ($budget['used'] >= $limit - 1) {
+                break; // Reserve at least one request for URLs.
+            }
+            $budget['used']++;
+            self::save_budget($budget_key, $budget);
+            $response = $this->send_provider_request($provider, $tags, true, $settings);
+            $code = is_wp_error($response) ? 0 : wp_remote_retrieve_response_code($response);
+            if ($code === 0 || $code === 429 || $code >= 500) {
+                $delay = self::retry_delay($response, $code);
+                $budget['until'] = time() + max(60, $delay);
+                $budget['used'] = $limit;
+                self::save_budget($budget_key, $budget);
+                break; // URL work remains durable; tags are supplemental, not retried alone.
+            }
+        }
+        foreach ($due as $key => $unused) {
+            $due[$key] = $pending[$provider][$key];
+        }
+        while ($due && $budget['used'] < $limit) {
+            $chunk = array();
+            $size = $provider === 'fastly' ? 1 : ($provider === 'akamai' ? 50 : 30);
+            foreach ($due as $key => $entry) {
+                $candidate = array_merge(array_column($chunk, 'url'), array($entry['url']));
+                if ($chunk && (count($chunk) >= $size || strlen(wp_json_encode(array('objects' => $candidate))) > 45000)) {
+                    break;
+                }
+                $chunk[$key] = $entry;
+            }
+            $budget['used']++;
+            self::save_budget($budget_key, $budget);
+            $response = $this->send_provider_request($provider, array_column($chunk, 'url'), false, $settings);
+            $code = is_wp_error($response) ? 0 : wp_remote_retrieve_response_code($response);
+            $accepted = $code >= 200 && $code < 300;
+            // Cloudflare may return HTTP 200 with success:false.
+            if ($accepted && $provider === 'cloudflare') {
+                $body = json_decode(wp_remote_retrieve_body($response), true);
+                $accepted = is_array($body) && !empty($body['success']);
+            }
+            $retryable = $code === 0 || $code === 429 || $code >= 500;
+            $delay = self::retry_delay($response, $code);
+            foreach ($chunk as $key => $entry) {
+                unset($due[$key]);
+                if ($accepted) {
+                    unset($pending[$provider][$key]);
+                    $out['accepted']++;
+                } elseif ($retryable && ++$entry['attempts'] < self::MAX_ATTEMPTS) {
+                    $entry['next'] = time() + max($delay, 60 * (2 ** $entry['attempts']));
+                    $pending[$provider][$key] = $entry;
                 } else {
-                    $code = wp_remote_retrieve_response_code($response);
-                    if ($code < 200 || $code >= 300) {
-                        self::log_error('Cloudflare URL purge', 'HTTP ' . $code);
-                    }
+                    unset($pending[$provider][$key]);
+                    $out['failed']++;
+                    self::terminal_failure($provider, 'http_' . $code . '_or_retry_exhausted');
                 }
             }
+            self::save_pending($pending);
+            if (!$accepted && $retryable) {
+                // A throttled batch must stop ALL work for this provider until Retry-After.
+                $budget['until'] = time() + max(60, $delay);
+                $budget['used'] = $limit;
+                self::save_budget($budget_key, $budget);
+                break;
+            }
+        }
+        foreach ($pending[$provider] as &$entry) {
+            $entry['next'] = max($entry['next'], $budget['until']);
+        }
+        unset($entry);
+        $out['deferred'] += count($pending[$provider]);
+        self::save_pending($pending);
+        return $out;
+    }
+
+    private static function retry_delay($response, $code) {
+        if ($code !== 429 && $code < 500) {
+            return 0;
+        }
+        $header = wp_remote_retrieve_header($response, 'retry-after');
+        return is_numeric($header) ? max(0, (int) $header) : max(0, (int) strtotime((string) $header) - time());
+    }
+
+    private static function save_budget($key, array $budget) {
+        if (!update_option($key, $budget, false) && get_option($key) !== $budget) {
+            throw new \RuntimeException('edge_budget_write_failed');
         }
     }
 
-    /**
-     * Purge Fastly via Surrogate-Key API.
-     *
-     * Uses soft purge (marks stale) for graceful invalidation.
-     *
-     * @see https://www.fastly.com/documentation/reference/api/purging/
-     *
-     * @param array $post_ids Resolved post IDs.
-     * @param array $settings Edge cache settings.
-     */
-    private function purge_fastly(array $post_ids, array $settings) {
-        if (empty($post_ids)) {
-            return;
-        }
-
-        $service_id = $settings['fastly_service_id'];
-        $api_token  = $settings['fastly_api_token'];
-        $endpoint   = 'https://api.fastly.com/service/' . urlencode($service_id) . '/purge';
-
-        $keys = array_map(function ($id) {
-            return 'metasync-post-' . $id;
-        }, $post_ids);
-
-        $response = wp_remote_post($endpoint, array(
-            'headers' => array(
-                'Fastly-Key'        => $api_token,
-                'Content-Type'      => 'application/json',
-                'Fastly-Soft-Purge' => '1',
-            ),
-            'body'    => wp_json_encode(array('surrogate_keys' => $keys)),
-            'timeout' => self::API_TIMEOUT,
-        ));
-
-        if (is_wp_error($response)) {
-            self::log_error('Fastly purge', $response->get_error_message());
-        } else {
-            $code = wp_remote_retrieve_response_code($response);
-            if ($code < 200 || $code >= 300) {
-                self::log_error('Fastly purge', 'HTTP ' . $code);
+    private function send_provider_request($provider, array $objects, $tags, array $settings) {
+        $args = array('timeout' => self::API_TIMEOUT, 'redirection' => 0);
+        if ($provider === 'fastly') {
+            $args['headers'] = array('Fastly-Key' => $settings['fastly_api_token'], 'Fastly-Soft-Purge' => '1');
+            if (!$tags) {
+                $args['method'] = 'PURGE';
+                return wp_remote_request($objects[0], $args);
             }
+            $url = 'https://api.fastly.com/service/' . urlencode($settings['fastly_service_id']) . '/purge';
+            $args['body'] = wp_json_encode(array('surrogate_keys' => $objects));
+        } elseif ($provider === 'akamai') {
+            $host = rtrim($settings['akamai_host'], '/');
+            $path = $tags ? '/ccu/v3/invalidate/tag/production' : '/ccu/v3/invalidate/url/production';
+            $url = 'https://' . $host . $path;
+            $args['body'] = wp_json_encode(array('objects' => $objects));
+            $args['headers'] = array('Authorization' => $this->sign_akamai_request('POST', 'https', $host, $path,
+                $args['body'], 'application/json', $settings['akamai_client_token'],
+                $settings['akamai_client_secret'], $settings['akamai_access_token']));
+        } else {
+            $url = 'https://api.cloudflare.com/client/v4/zones/' . urlencode($settings['cloudflare_zone_id']) . '/purge_cache';
+            $args['headers'] = array('Authorization' => 'Bearer ' . $settings['cloudflare_api_token']);
+            $args['body'] = wp_json_encode(array($tags ? 'tags' : 'files' => $objects));
         }
+        $args['headers']['Content-Type'] = 'application/json';
+        return wp_remote_post($url, $args);
     }
 
-    /**
-     * Purge Akamai via CCU v3 Fast Purge API (tag-based invalidation).
-     *
-     * Uses EdgeGrid HMAC signing for authentication.
-     *
-     * @see https://techdocs.akamai.com/purge-cache/reference/invalidate-tag
-     *
-     * @param array $post_ids Resolved post IDs.
-     * @param array $settings Edge cache settings.
-     */
-    private function purge_akamai(array $post_ids, array $settings) {
-        if (empty($post_ids)) {
+    private static function terminal_failure($provider, $reason) {
+        static $reported = array();
+        $key = $provider . ':' . $reason;
+        if (isset($reported[$key])) {
             return;
         }
-
-        $tags = array_map(function ($id) {
-            return 'metasync-post-' . $id;
-        }, $post_ids);
-
-        $host         = rtrim($settings['akamai_host'], '/');
-        $path         = '/ccu/v3/invalidate/tag/production';
-        $url          = 'https://' . $host . $path;
-        $body         = wp_json_encode(array('objects' => $tags));
-        $content_type = 'application/json';
-
-        $auth_header = $this->sign_akamai_request(
-            'POST',
-            'https',
-            $host,
-            $path,
-            $body,
-            $content_type,
-            $settings['akamai_client_token'],
-            $settings['akamai_client_secret'],
-            $settings['akamai_access_token']
-        );
-
-        if (empty($auth_header)) {
-            self::log_error('Akamai purge', 'Failed to generate EdgeGrid signature');
-            return;
-        }
-
-        $response = wp_remote_post($url, array(
-            'headers' => array(
-                'Authorization' => $auth_header,
-                'Content-Type'  => $content_type,
-            ),
-            'body'    => $body,
-            'timeout' => self::API_TIMEOUT,
-        ));
-
-        if (is_wp_error($response)) {
-            self::log_error('Akamai purge', $response->get_error_message());
-        } else {
-            $code = wp_remote_retrieve_response_code($response);
-            // Akamai returns 201 on success
-            if ($code < 200 || $code >= 300) {
-                self::log_error('Akamai purge', 'HTTP ' . $code);
+        $reported[$key] = true;
+        try {
+            self::log_error($provider, $reason);
+            if (function_exists('metasync_record_failed_action')) {
+                metasync_record_failed_action(self::DRAINER_HOOK);
             }
+        } catch (\Throwable $ignored) {
+            // Diagnostics must never break the non-throwing public boundary.
         }
     }
 
@@ -367,17 +512,21 @@ class Metasync_Edge_Cache_Purge {
                 's' => $settings['sucuri_api_secret'],
                 'a' => 'clear_cache',
             ), 'https://waf.sucuri.net/api'),
-            array('timeout' => self::API_TIMEOUT)
+            array('timeout' => self::API_TIMEOUT, 'redirection' => 0)
         );
-
         if (is_wp_error($response)) {
-            self::log_error('Sucuri purge', $response->get_error_message());
-        } else {
-            $code = wp_remote_retrieve_response_code($response);
-            if ($code < 200 || $code >= 300) {
-                self::log_error('Sucuri purge', 'HTTP ' . $code);
-            }
+            return false;
         }
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        return self::http_accepted($response) && is_array($body) && !empty($body['status']);
+    }
+
+    private static function http_accepted($response) {
+        if (is_wp_error($response)) {
+            return false;
+        }
+        $code = wp_remote_retrieve_response_code($response);
+        return $code >= 200 && $code < 300;
     }
 
     /**
@@ -394,54 +543,15 @@ class Metasync_Edge_Cache_Purge {
      * @param array $settings Edge cache settings.
      */
     private function purge_sevalla(array $settings) {
-        $app_id  = $settings['sevalla_application_id'];
-        $headers = array(
-            'Authorization' => 'Bearer ' . $settings['sevalla_api_key'],
-        );
-
-        // v3: Edge-cache-specific endpoint (preferred)
-        $v3_endpoint = 'https://api.sevalla.com/v3/applications/' . urlencode($app_id) . '/purge-cache';
-
-        $response = wp_remote_post($v3_endpoint, array(
-            'headers' => $headers,
-            'timeout' => self::API_TIMEOUT,
-        ));
-
-        if (is_wp_error($response)) {
-            self::log_error('Sevalla v3 purge', $response->get_error_message());
-            return;
+        $args = array('headers' => array('Authorization' => 'Bearer ' . $settings['sevalla_api_key']),
+            'timeout' => self::API_TIMEOUT, 'redirection' => 0);
+        $base = 'https://api.sevalla.com/';
+        $app = urlencode($settings['sevalla_application_id']);
+        $response = wp_remote_post($base . 'v3/applications/' . $app . '/purge-cache', $args);
+        if (!is_wp_error($response) && wp_remote_retrieve_response_code($response) === 404) {
+            $response = wp_remote_post($base . 'v2/applications/' . $app . '/clear-cache', $args);
         }
-
-        $code = wp_remote_retrieve_response_code($response);
-
-        // v3 succeeded
-        if ($code >= 200 && $code < 300) {
-            return;
-        }
-
-        // v3 not available — fall back to v2 general cache clear
-        if ($code === 404) {
-            self::log_error('Sevalla purge', 'v3 endpoint not found, falling back to v2');
-            $v2_endpoint = 'https://api.sevalla.com/v2/applications/' . urlencode($app_id) . '/clear-cache';
-
-            $response = wp_remote_post($v2_endpoint, array(
-                'headers' => $headers,
-                'timeout' => self::API_TIMEOUT,
-            ));
-
-            if (is_wp_error($response)) {
-                self::log_error('Sevalla v2 purge', $response->get_error_message());
-            } else {
-                $code = wp_remote_retrieve_response_code($response);
-                if ($code < 200 || $code >= 300) {
-                    self::log_error('Sevalla v2 purge', 'HTTP ' . $code);
-                }
-            }
-            return;
-        }
-
-        // Other error on v3
-        self::log_error('Sevalla purge', 'HTTP ' . $code);
+        return self::http_accepted($response);
     }
 
     /**
@@ -450,6 +560,7 @@ class Metasync_Edge_Cache_Purge {
      * @param array $urls URLs to purge.
      */
     private function purge_cloudways(array $urls) {
+        $ok = true;
         foreach ($urls as $url) {
             $parsed = wp_parse_url($url);
             if (empty($parsed['path'])) {
@@ -466,10 +577,9 @@ class Metasync_Edge_Cache_Purge {
                 'timeout' => self::API_TIMEOUT,
             ));
 
-            if (is_wp_error($response)) {
-                self::log_error('Cloudways purge', $response->get_error_message());
-            }
+            $ok = self::http_accepted($response) && $ok;
         }
+        return $ok;
     }
 
     /**
@@ -480,7 +590,9 @@ class Metasync_Edge_Cache_Purge {
     private function purge_flywheel() {
         if (has_action('fl_clear_all_cache')) {
             do_action('fl_clear_all_cache');
+            return true;
         }
+        return null;
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -530,24 +642,24 @@ class Metasync_Edge_Cache_Purge {
                 $scheme,
                 $host,
                 $path,
-                '', // query string (empty for this endpoint)
+                '', // canonical signed headers (none); path includes any query string
                 $content_hash,
                 $auth_header,
             ));
 
             // Signing key = HMAC-SHA256(client_secret, timestamp)
             $signing_key = base64_encode(
-                hash_hmac('sha256', $timestamp, base64_decode($client_secret), true)
+                hash_hmac('sha256', $timestamp, $client_secret, true)
             );
 
             // Signature = HMAC-SHA256(signing_key, data_to_sign)
             $signature = base64_encode(
-                hash_hmac('sha256', $data_to_sign, base64_decode($signing_key), true)
+                hash_hmac('sha256', $data_to_sign, $signing_key, true)
             );
 
             return $auth_header . 'signature=' . $signature;
         } catch (Exception $e) {
-            self::log_error('Akamai EdgeGrid signing', $e->getMessage());
+            self::log_error('Akamai EdgeGrid signing', 'signature_failed');
             return '';
         }
     }

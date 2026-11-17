@@ -497,7 +497,8 @@ class Metasync_SEO_Health
 	 * box with schema unchecked preserves types under enabled=false, which
 	 * renders nothing and must read as "None"), OTTO JSON-LD when the payload
 	 * is more than an empty structure (live key or the copy persisted inside
-	 * the schema array), and Rank Math's saved schema only while Rank Math is
+	 * the schema array), the Content Genius payload schema under its own key,
+	 * and Rank Math's saved schema only while Rank Math is
 	 * active — a deactivated plugin's leftover meta controls nothing. Yoast is
 	 * never counted: it emits a schema graph for every page automatically.
 	 *
@@ -525,6 +526,12 @@ class Metasync_SEO_Health
 		}
 
 		if (self::has_meaningful_jsonld(get_post_meta($post_id, '_metasync_otto_structured_data', true))) {
+			return true;
+		}
+
+		// Content Genius publish payload schema: rendered as its own standalone
+		// tag wherever the post renders, so it counts like any other saved source.
+		if (self::has_meaningful_jsonld(get_post_meta($post_id, '_metasync_ca_schema_jsonld', true))) {
 			return true;
 		}
 

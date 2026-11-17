@@ -698,10 +698,19 @@ class Metasync_Otto_Bot_Detector {
         // collapse to a bounded key space and cannot flood wp_options.
         $bot_name     = substr( strtolower( $detection['bot_name'] ?? 'unknown' ), 0, 32 );
         $throttle_key = 'metasync_crawl_log_' . md5( $normalized_url . '|' . $bot_name );
-        if ( get_transient( $throttle_key ) ) {
-            return;
+        if ( is_404() ) {
+            // No transient fallback: scanner URL cardinality must not churn wp_options.
+            // Persistent object caches deduplicate across requests; core's default
+            // nonpersistent cache deliberately deduplicates only within this request.
+            if ( ! wp_cache_add( $throttle_key, 1, 'metasync_otto_404_crawl', 30 * MINUTE_IN_SECONDS ) ) {
+                return;
+            }
+        } else {
+            if ( get_transient( $throttle_key ) ) {
+                return;
+            }
+            set_transient( $throttle_key, 1, 30 * MINUTE_IN_SECONDS );
         }
-        set_transient( $throttle_key, 1, 30 * MINUTE_IN_SECONDS );
 
         $payload = array(
             'otto_uuid'  => $otto_uuid,

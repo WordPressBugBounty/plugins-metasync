@@ -28,6 +28,7 @@ class Metasync_Access_Control {
         'hide_sync_log' => 'Changes Log',
         'hide_compatibility' => 'Compatibility',
         'hide_report_issue' => 'Report Issue',
+        'hide_mcp' => 'AI Agents (MCP)',
 
         'hide_advanced' => 'Advanced Settings'
     );

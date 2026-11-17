@@ -59,6 +59,16 @@ class MetaSync_DBMigration
 			dbDelta($table_sql);
 		}
 
+		// Create MCP Client Keys Table (AI Agents page). Hash-only storage:
+		// the plaintext key exists once at creation time and is never stored.
+		require_once dirname(__FILE__, 2) . '/wp-mcp-server/class-metasync-mcp-keys.php';
+		$tableNameMcpKeys = esc_sql(Metasync_MCP_Keys::table_name());
+
+		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $tableNameMcpKeys)) != $tableNameMcpKeys) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+			dbDelta(Metasync_MCP_Keys::create_table_sql());
+		}
+
 		// Create Redirections Table
 		require_once dirname(__FILE__, 2) . '/redirections/class-metasync-redirection-database.php';
 		$tableNameRedirection = esc_sql($wpdb->prefix . Metasync_Redirection_Database::$table_name);

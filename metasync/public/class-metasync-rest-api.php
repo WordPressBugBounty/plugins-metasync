@@ -254,7 +254,7 @@ class Metasync_Rest_Api
 			return $result;
 		}
 
-		if ($this->request_has_valid_api_key()) {
+		if ($this->request_has_valid_api_key($route)) {
 			return null;
 		}
 
@@ -305,11 +305,23 @@ class Metasync_Rest_Api
 	 * no WP_REST_Request. Accepts Authorization: Bearer and X-API-Key headers,
 	 * matching rest_authorization_middleware().
 	 *
-	 * @return bool True only when a presented key matches the configured one.
+	 * MCP client keys (msk_...) are honoured only for the MCP routes themselves,
+	 * where the MCP server's permission callback re-validates the key in full
+	 * (owner, expiry, feature access, access level). On every other metasync/v1
+	 * route an MCP key does not authenticate anything: the rescue falls through
+	 * to the stored plugin API key comparison and fails.
+	 *
+	 * @param string $route Current REST route with a leading slash, or '' to resolve it.
+	 * @return bool True only when a presented key is valid for the route.
 	 */
-	protected function request_has_valid_api_key()
+	protected function request_has_valid_api_key($route = '')
 	{
+		if ($route === '') {
+			$route = $this->get_current_rest_route();
+		}
+
 		$api_key = '';
+		$from_bearer = false;
 
 		// Primary: Authorization: Bearer <token>. Some Apache/FastCGI setups
 		// only expose the header under the REDIRECT_ prefix.
@@ -321,6 +333,7 @@ class Metasync_Rest_Api
 		}
 		if ($auth_header !== '' && preg_match('/^Bearer\s+(.+)$/i', $auth_header, $matches)) {
 			$api_key = sanitize_text_field($matches[1]);
+			$from_bearer = true;
 		}
 
 		// Secondary: X-API-Key header.
@@ -330,6 +343,20 @@ class Metasync_Rest_Api
 
 		if ($api_key === '') {
 			return false;
+		}
+
+		// MCP client keys (msk_...) live in their own store and are accepted
+		// only in the Bearer header form, never as X-API-Key or ?apikey=. They
+		// only ever clear auth restrictions on the MCP routes, not the wider
+		// metasync/v1 REST namespace.
+		if ($from_bearer && strpos($api_key, 'msk_') === 0) {
+			$mcp_base = '/' . self::namespace . '/mcp';
+			$is_mcp_route = ($route === $mcp_base || strpos($route, $mcp_base . '/') === 0);
+			if (!$is_mcp_route) {
+				return false;
+			}
+			require_once plugin_dir_path(dirname(__FILE__)) . 'wp-mcp-server/class-metasync-mcp-keys.php';
+			return Metasync_MCP_Keys::is_valid_bearer_key($api_key);
 		}
 
 		$stored_key = $this->get_stored_api_key();
@@ -1498,6 +1525,20 @@ class Metasync_Rest_Api
 		// Looping for payload for posts
 		$respCreatePosts = array();
 		foreach ($request_data as $index => $item) {
+			# A malformed non-array item (a bare scalar in the JSON body) can
+			# only be reported, never processed: every read and write below
+			# assumes an array, and on PHP 8 the first offset write would
+			# otherwise fatal the request mid-batch, after earlier items were
+			# already mutated. Per-item error, batch continues — same contract
+			# as the post_type guard below.
+			if (!is_array($item)) {
+				$respCreatePosts[$index] = array(
+					'error' => 'rest_post_invalid_item',
+					'message' => 'Each item in the publish payload must be a JSON object.',
+					'post_title' => '',
+				);
+				continue;
+			}
 			# Reject unregistered and non-public types before ANY per-item work:
 			# the author switch, content conversion and media sideloading below
 			# must not run for an item that will never be written. An omitted or
@@ -1626,11 +1667,19 @@ class Metasync_Rest_Api
 			if (isset($item['post_date']) && !empty($item['post_date'])) {
 				$raw_date = is_string($item['post_date']) ? $item['post_date'] : '';
 				# Keep the accepted formats tight (Y-m-d, optionally with a
-				# time part): strtotime alone would silently reinterpret
+				# time part): permissive parsing alone would silently reinterpret
 				# ambiguous strings like 03/04/2026.
 				$is_valid_date = (bool) preg_match('/^\d{4}-\d{2}-\d{2}($|[T ]\d{2}:\d{2}(:\d{2})?)/', $raw_date);
-				$post_date_ts = $is_valid_date ? strtotime($raw_date) : false;
-				if ($post_date_ts === false) {
+				$wp_tz = function_exists('wp_timezone') ? wp_timezone() : new DateTimeZone('UTC');
+				$parsed_date = false;
+				if ($is_valid_date) {
+					try {
+						$parsed_date = new DateTimeImmutable($raw_date, $wp_tz);
+					} catch (Exception $e) {
+						$parsed_date = false;
+					}
+				}
+				if ($parsed_date === false) {
 					$respCreatePosts[$index] = array(
 						'error' => 'rest_post_invalid_date',
 						'message' => 'Post date is not valid',
@@ -1640,14 +1689,11 @@ class Metasync_Rest_Api
 					continue;
 				}
 
-				// Apply the requested date. Previously the date was validated
-				// and then silently discarded, so every backdated or scheduled
-				// publish ended up stamped "today". WordPress expects
-				// post_date in site-local time and post_date_gmt in UTC.
-				$post_date_local = new DateTime('@' . $post_date_ts);
-				$post_date_local->setTimezone(wp_timezone());
-				$new_post['post_date'] = $post_date_local->format('Y-m-d H:i:s');
-				$new_post['post_date_gmt'] = gmdate('Y-m-d H:i:s', $post_date_ts);
+				// Default timezone-less dates to the site timezone while honoring
+				// explicit offsets/timezones. WordPress expects post_date in
+				// site-local time and post_date_gmt in UTC for the same instant.
+				$new_post['post_date'] = $parsed_date->setTimezone($wp_tz)->format('Y-m-d H:i:s');
+				$new_post['post_date_gmt'] = $parsed_date->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
 			}
 
 			// Adding condition to check if the post is already exist
@@ -1694,10 +1740,10 @@ class Metasync_Rest_Api
 			}
 
 			if (isset($item['post_parent']) && !empty($item['post_parent']) && $item['post_parent'] != 0) {
-				if ($new_post['post_type'] == 'page') {					
-					$new_post['post_parent'] = isset($item['post_parent']) ? $item['post_parent'] : 0;
+				if ($new_post['post_type'] == 'page') {
+					$new_post['post_parent'] = $item['post_parent'];
 				} else {
-					$item['post_parent'] = isset($item['post_parent']) ? $item['post_parent'] : 0;
+					$item['post_parent'] = $item['post_parent'];
 				}
 			}
 
@@ -1853,6 +1899,12 @@ class Metasync_Rest_Api
 
 			// Add custom fields to posts and pages
 			$this->metasync_apply_builder_meta($post_id, $post_meta, false);
+
+			# CA publish payload SEO fields (schema_jsonld / canonical_url /
+			# html_lang). Written after the builder meta with update semantics so
+			# a republish that matched this same post refreshes them. The loop's
+			# non-array guard above guarantees $item is an array here.
+			$this->apply_ca_seo_payload_fields($post_id, $item);
 
 			// A freshly inserted post has no template of its own yet; match it to
 			// the one this site uses for its other posts.
@@ -2761,6 +2813,9 @@ class Metasync_Rest_Api
 				}
 			}
 
+			# CA publish payload SEO fields (schema_jsonld / canonical_url /
+			# html_lang), same handling as the create path.
+			$this->apply_ca_seo_payload_fields($post_id, $post);
 
 			$post_revisions = wp_get_post_revisions($post_id);
 			// Sync post categories to customer dashboard
@@ -3288,6 +3343,73 @@ class Metasync_Rest_Api
 				add_post_meta($post_id, $key, $value, true);
 			}
 		}
+	}
+
+	/**
+	 * Persist the three Content Genius SEO payload fields for a publish.
+	 *
+	 * schema_jsonld  -> _metasync_ca_schema_jsonld (rendered as-is by
+	 *                   Metasync_Schema_Markup::output_schema_markup())
+	 * canonical_url  -> _metasync_canonical_url (top tier of the canonical
+	 *                   precedence chain, rendered by the SEO output)
+	 * html_lang      -> _metasync_html_lang (applied to <html lang> via the
+	 *                   language_attributes filter)
+	 *
+	 * Every field is optional and validated independently; an absent or
+	 * unusable value never touches stored meta, so publishes that omit these
+	 * fields (untyped/English articles) render exactly as before. Writes use
+	 * update semantics so a republish refreshes all three values.
+	 *
+	 * @param int   $post_id Post the payload belongs to.
+	 * @param array $payload One createItem/updateItems payload item.
+	 * @return void
+	 */
+	private function apply_ca_seo_payload_fields($post_id, array $payload)
+	{
+		if (isset($payload['schema_jsonld']) && is_string($payload['schema_jsonld'])) {
+			$jsonld = trim($payload['schema_jsonld']);
+			$decoded = ($jsonld !== '') ? json_decode($jsonld) : null;
+			# Only a JSON object or array is a schema document; scalars and
+			# parse failures are dropped rather than stored and emitted.
+			if (is_object($decoded) || is_array($decoded)) {
+				# wp_slash(): update_post_meta() runs wp_unslash() on the value,
+				# and this string comes from get_json_params() already unslashed —
+				# without re-slashing, every backslash escape (\", \n, \uXXXX)
+				# would be stripped on the way to the DB, corrupting (often
+				# invalidating) the stored JSON after it passed validation.
+				# Same convention as the OTTO persistence layer.
+				update_post_meta($post_id, '_metasync_ca_schema_jsonld', wp_slash($jsonld));
+			}
+		}
+		if (isset($payload['canonical_url']) && $payload['canonical_url'] !== '') {
+			$canonical = Metasync_Canonical_Sanitizer::sanitize_for_save($payload['canonical_url']);
+			if ($canonical !== '') {
+				update_post_meta($post_id, '_metasync_canonical_url', $canonical);
+			}
+		}
+		if (isset($payload['html_lang']) && $payload['html_lang'] !== '') {
+			$html_lang = $this->sanitize_ca_html_lang($payload['html_lang']);
+			if ($html_lang !== '') {
+				update_post_meta($post_id, '_metasync_html_lang', $html_lang);
+			}
+		}
+	}
+
+	/**
+	 * Validate a Content Genius html_lang payload value.
+	 *
+	 * Accepts language tags shaped like the WP <html lang> attribute itself
+	 * writes ("en", "en-US", "pt-BR", "zh-Hans"): a 2-3 letter primary tag
+	 * followed by optional dash-separated subtags. Anything else is dropped —
+	 * an invalid value must never replace the tag WP would have emitted.
+	 *
+	 * @param mixed $value Raw payload value.
+	 * @return string Valid language tag, or '' when unusable.
+	 */
+	private function sanitize_ca_html_lang($value)
+	{
+		$value = is_string($value) ? sanitize_text_field($value) : '';
+		return (1 === preg_match('/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/', $value)) ? $value : '';
 	}
 
 	public function delete_page($request = null)

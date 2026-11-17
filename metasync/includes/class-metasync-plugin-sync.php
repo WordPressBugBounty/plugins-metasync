@@ -280,7 +280,17 @@ class Metasync_Plugin_Sync {
 
 		// JSON key -- do a full sync + mirror to legacy meta boxes
 		if ($canonical_key === '_robots_advanced_json') {
-			$this->sync_post((int) $post_id);
+			// A JSON write made by sync_legacy_to_json() while rebuilding
+			// from the legacy meta boxes: the legacy-originating call below
+			// runs the third-party sync itself once the rebuild finishes, so
+			// running one here as well would write (and back up) the same
+			// values twice. The shutdown re-sync is still wanted — it guards
+			// against Yoast's indexable watcher, which reacts to the same
+			// request either way.
+			$nested_legacy_rebuild = !empty($this->syncing_legacy_to_json[$post_id]);
+			if (!$nested_legacy_rebuild) {
+				$this->sync_post((int) $post_id);
+			}
 			$this->sync_to_legacy_meta((int) $post_id, $meta_value);
 			// Re-sync at shutdown only when Yoast is active — Yoast's indexable
 			// watcher can overwrite our values during the same request.
@@ -305,19 +315,37 @@ class Metasync_Plugin_Sync {
 		// Legacy meta box → rebuild _metasync_robots_advanced JSON
 		if ($canonical_key === '_legacy_robots_to_json') {
 			$this->sync_legacy_to_json((int) $post_id);
+			// Propagate the meta-box robots to any active third-party plugin.
+			// Without this the box only ever reached the JSON mirror, so a
+			// noindex ticked there never reached Yoast/Rank Math/AIOSEO while
+			// a later unrelated sync happily stamped their affirmative index
+			// over it. The JSON write inside sync_legacy_to_json() can fire a
+			// nested on_meta_updated() for _metasync_robots_advanced; that
+			// nested call is short-circuited (see the branch above) so the
+			// third-party sync happens exactly once, here, with the rebuilt
+			// values.
+			$this->sync_post((int) $post_id);
 			return;
 		}
 
 		// For noindex: convert 'noindex' string to bool
 		if ($canonical_key === 'noindex') {
 			$value = ($meta_value === 'noindex');
+			$fields = [$canonical_key => $value];
+			if ($meta_value === 'index') {
+				// A dedicated-key 'index' is a deliberate choice, not the
+				// absence of noindex — flag it so the writers emit the
+				// third-party's affirmative index encoding for it.
+				$fields['robots_index_explicit'] = true;
+			}
 		} else {
 			$value = $meta_value;
+			$fields = [$canonical_key => $value];
 		}
 
 		$this->sync_post(
 			(int) $post_id,
-			[$canonical_key => $value]
+			$fields
 		);
 	}
 
@@ -345,6 +373,44 @@ class Metasync_Plugin_Sync {
 		}
 
 		$this->sync_legacy_to_json((int) $post_id);
+
+		// With third-party mirroring disabled there is no downstream value to
+		// clear. Besides avoiding needless work, this keeps the legacy mirror
+		// hook safe in lightweight non-WordPress contexts that intentionally
+		// exercise only the JSON rebuild.
+		if (!$this->third_party_writes_allowed()) {
+			return;
+		}
+
+		// Mirror the removal into third-party storage, mirroring the
+		// propagation on_meta_updated() now does for the update path. When
+		// directives remain, a full sync rewrites them and clears the removed
+		// axis through its default encoding. When nothing remains, the
+		// collector's no-opinion gate would skip every robots write — right
+		// for an unrelated sync, wrong here, where the surviving third-party
+		// values are ones this plugin mirrored earlier. Send an explicit
+		// all-clear so the writers reset those fields to their defaults
+		// instead of leaving a stale noindex behind. Null max-* values mean
+		// "remove the directive", not "leave it alone" — and this payload is
+		// the only null producer left: collect_post_data() omits max-* keys
+		// it has no stored value for.
+		$remaining = Metasync_Seo_Output::robots_meta_snapshot($post_id);
+		if (Metasync_Seo_Output::resolve_robots_value_raw($remaining, false) === ''
+			&& !$this->resolve_explicit_index_intent($remaining)) {
+			$this->sync_post((int) $post_id, [
+				'noindex'          => false,
+				'nofollow'         => false,
+				'noarchive'        => false,
+				'nosnippet'        => false,
+				'noimageindex'     => false,
+				'max_snippet'      => null,
+				'max_image_preview' => null,
+				'max_video_preview' => null,
+			]);
+			return;
+		}
+
+		$this->sync_post((int) $post_id);
 	}
 
 	// ------------------------------------------------------------------
@@ -493,7 +559,11 @@ class Metasync_Plugin_Sync {
 		$robots_json_raw = $get('_metasync_robots_advanced');
 		$robots_json = !empty($robots_json_raw) ? json_decode($robots_json_raw, true) : null;
 
-		if (is_array($robots_json)) {
+		// The empty-array guard mirrors the emitter's own JSON branch, which
+		// falls through to meta_robots / the checkbox arrays when the JSON
+		// holds nothing: an "empty" JSON must not make the collector ignore
+		// storage the front end still renders.
+		if (is_array($robots_json) && $robots_json !== []) {
 			$data['noindex'] = $this->resolve_synced_noindex(
 				$robots_json,
 				$get('_metasync_robots_index'),
@@ -503,9 +573,27 @@ class Metasync_Plugin_Sync {
 			$data['noarchive'] = !empty($robots_json['noarchive']);
 			$data['nosnippet'] = !empty($robots_json['nosnippet']);
 			$data['noimageindex'] = !empty($robots_json['noimageindex']);
-			$data['max_snippet'] = isset($robots_json['max_snippet']) ? (int) $robots_json['max_snippet'] : (isset($robots_json['max-snippet']) ? (int) $robots_json['max-snippet'] : null);
-			$data['max_image_preview'] = $robots_json['max_image_preview'] ?? $robots_json['max-image-preview'] ?? null;
-			$data['max_video_preview'] = isset($robots_json['max_video_preview']) ? (int) $robots_json['max_video_preview'] : (isset($robots_json['max-video-preview']) ? (int) $robots_json['max-video-preview'] : null);
+
+			// max-* directives — each key is set only when the JSON actually
+			// carries it. Null is reserved for the explicit all-clear payload
+			// on_meta_deleted() sends, where it means "remove the directive";
+			// emitting it here for a merely absent key made every unrelated
+			// full sync delete Rank Math max-* values MetaSync never owned.
+			if (isset($robots_json['max_snippet'])) {
+				$data['max_snippet'] = (int) $robots_json['max_snippet'];
+			} elseif (isset($robots_json['max-snippet'])) {
+				$data['max_snippet'] = (int) $robots_json['max-snippet'];
+			}
+			if (isset($robots_json['max_image_preview'])) {
+				$data['max_image_preview'] = $robots_json['max_image_preview'];
+			} elseif (isset($robots_json['max-image-preview'])) {
+				$data['max_image_preview'] = $robots_json['max-image-preview'];
+			}
+			if (isset($robots_json['max_video_preview'])) {
+				$data['max_video_preview'] = (int) $robots_json['max_video_preview'];
+			} elseif (isset($robots_json['max-video-preview'])) {
+				$data['max_video_preview'] = (int) $robots_json['max-video-preview'];
+			}
 		} else {
 			// noindex: dedicated key, falling back to the Common Robots checkbox
 			// array — same sources the front-end emitter honours.
@@ -527,6 +615,20 @@ class Metasync_Plugin_Sync {
 			$data['nosnippet'] = !empty($common_robots['nosnippet']);
 			$data['noimageindex'] = !empty($common_robots['noimageindex']);
 
+			// meta_robots (the REST string) renders verbatim whenever the
+			// advanced JSON holds nothing — the emitter's branch 2 — so its
+			// tokens are as much MetaSync's stored opinion as the checkbox
+			// array. Reading only the checkboxes reported a REST noindex as
+			// noindex=false, which the writers stamped into Yoast/Rank Math
+			// as an affirmative index over the customer's deindex.
+			$meta_robots_string = strtolower(trim((string) $get('meta_robots')));
+			if ($meta_robots_string !== '') {
+				$meta_robots_tokens = array_filter(array_map('trim', explode(',', $meta_robots_string)));
+				foreach (['noindex', 'nofollow', 'noarchive', 'nosnippet', 'noimageindex'] as $dir) {
+					$data[$dir] = !empty($data[$dir]) || in_array($dir, $meta_robots_tokens, true);
+				}
+			}
+
 			// Advance robots array (serialized)
 			$adv_raw = $get('metasync_advance_robots');
 			$adv_robots = !empty($adv_raw) ? maybe_unserialize($adv_raw) : [];
@@ -539,15 +641,49 @@ class Metasync_Plugin_Sync {
 			// whole sub-array — (int) of a non-empty array is 1, which is what produced the
 			// "max-snippet:1" instead of "-1" and dropped the image-preview value. Mirrors
 			// sync_legacy_to_json() so both directions read the legacy format identically.
-			$data['max_snippet'] = !empty($adv_robots['max-snippet']['enable'])
-				? (isset($adv_robots['max-snippet']['length']) ? (int) $adv_robots['max-snippet']['length'] : -1)
-				: null;
-			$data['max_image_preview'] = !empty($adv_robots['max-image-preview']['enable'])
-				? (isset($adv_robots['max-image-preview']['length']) ? (string) $adv_robots['max-image-preview']['length'] : 'large')
-				: null;
-			$data['max_video_preview'] = !empty($adv_robots['max-video-preview']['enable'])
-				? (isset($adv_robots['max-video-preview']['length']) ? (int) $adv_robots['max-video-preview']['length'] : -1)
-				: null;
+			// Same omission rule as the JSON branch above: an absent directive
+			// is "no opinion", never a null all-clear.
+			if (!empty($adv_robots['max-snippet']['enable'])) {
+				$data['max_snippet'] = isset($adv_robots['max-snippet']['length']) ? (int) $adv_robots['max-snippet']['length'] : -1;
+			}
+			if (!empty($adv_robots['max-image-preview']['enable'])) {
+				$data['max_image_preview'] = isset($adv_robots['max-image-preview']['length']) ? (string) $adv_robots['max-image-preview']['length'] : 'large';
+			}
+			if (!empty($adv_robots['max-video-preview']['enable'])) {
+				$data['max_video_preview'] = isset($adv_robots['max-video-preview']['length']) ? (int) $adv_robots['max-video-preview']['length'] : -1;
+			}
+		}
+
+		// "No opinion" must never be written into third-party robots storage:
+		// when MetaSync holds no robots value anywhere — nothing the emitter
+		// would render, and no explicit index marker — drop every robots key
+		// so the writers below skip them entirely. Otherwise an unrelated
+		// sync (a title edit is enough) would stamp an affirmative index over
+		// whatever the third-party plugin already held. The check reuses
+		// holds_robots_value() on purpose: it resolves the same storage with
+		// the feature flags applied, exactly like the emitter and the
+		// suppression side. A raw resolution here let a value belonging to a
+		// disabled feature (an advanced max-* with the metabox switched off)
+		// keep the gate open, and the flag pass then dropped the owned axis
+		// while the unowned booleans were stamped as defaults.
+		$explicit_index = $this->resolve_explicit_index_intent($all_meta);
+		if (!Metasync_Seo_Output::holds_robots_value($all_meta) && !$explicit_index) {
+			unset(
+				$data['noindex'],
+				$data['nofollow'],
+				$data['noarchive'],
+				$data['nosnippet'],
+				$data['noimageindex'],
+				$data['max_snippet'],
+				$data['max_image_preview'],
+				$data['max_video_preview']
+			);
+		} elseif ($explicit_index) {
+			// MetaSync holds a deliberate "index" for this post. Carried so
+			// the writers can distinguish a genuine index from the mere
+			// absence of noindex and write the third-party's affirmative
+			// encoding only for the former.
+			$data['robots_index_explicit'] = true;
 		}
 
 		// Social / OG: persisted > volatile OTTO
@@ -596,7 +732,8 @@ class Metasync_Plugin_Sync {
 				$data['nofollow'],
 				$data['noarchive'],
 				$data['nosnippet'],
-				$data['noimageindex']
+				$data['noimageindex'],
+				$data['robots_index_explicit']
 			);
 		}
 		if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::ADVANCE_ROBOTS)) {
@@ -626,10 +763,13 @@ class Metasync_Plugin_Sync {
 	/**
 	 * Resolve the noindex directive for syncing the way the front-end emitter
 	 * does: any of the three sources saying noindex wins, and none can veto
-	 * another. The JSON rebuilt by sync_legacy_to_json() deliberately omits
-	 * noindex, so reading the JSON alone reported a checkbox-only noindex as
-	 * false — and the writers translated that into an explicit 'index' that
-	 * overwrote a noindex the third-party plugin already held.
+	 * another. Every source is read on purpose: the JSON rebuilt by
+	 * sync_legacy_to_json() carries noindex only when the box ticked it, and
+	 * the sidebar payload can never carry the key at all, so the JSON alone
+	 * cannot be trusted to reflect the checkbox or the dedicated key —
+	 * reading it alone reported a checkbox-only noindex as false, and the
+	 * writers translated that into an explicit 'index' that overwrote a
+	 * noindex the third-party plugin already held.
 	 *
 	 * @param  mixed $robots_json  Decoded _metasync_robots_advanced payload (or null).
 	 * @param  mixed $robots_index Raw _metasync_robots_index meta value.
@@ -646,6 +786,46 @@ class Metasync_Plugin_Sync {
 		if (!empty($common_raw)) {
 			$common = maybe_unserialize($common_raw);
 			if (is_array($common) && !empty($common['noindex'])) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Whether MetaSync holds a deliberate "index" for the post, as opposed to
+	 * the mere absence of a noindex.
+	 *
+	 * Three storages can express it: the dedicated sidebar key set to
+	 * 'index', the classic Common Robots meta box's Index checkbox, and the
+	 * advanced JSON carrying an explicit noindex:false entry. A JSON rebuilt
+	 * from the legacy meta boxes carries noindex only when the box ticked it,
+	 * so a meta-box save that left the checkbox alone can never surface here
+	 * as a deliberate index. Only a genuine choice justifies writing the
+	 * third-party plugin's affirmative index encoding — '2' for Yoast,
+	 * 'index' for Rank Math.
+	 *
+	 * @param  array $all_meta Result of get_post_custom($post_id).
+	 * @return bool
+	 */
+	private function resolve_explicit_index_intent(array $all_meta) {
+		if (($all_meta['_metasync_robots_index'][0] ?? '') === 'index') {
+			return true;
+		}
+
+		$common_raw = $all_meta['metasync_common_robots'][0] ?? '';
+		if (!empty($common_raw)) {
+			$common = maybe_unserialize($common_raw);
+			if (is_array($common) && !empty($common['index'])) {
+				return true;
+			}
+		}
+
+		$advanced_raw = $all_meta['_metasync_robots_advanced'][0] ?? '';
+		if (!empty($advanced_raw)) {
+			$advanced = json_decode($advanced_raw, true);
+			if (is_array($advanced) && array_key_exists('noindex', $advanced) && !$advanced['noindex']) {
 				return true;
 			}
 		}
@@ -747,12 +927,11 @@ class Metasync_Plugin_Sync {
 	 *              reached.
 	 *
 	 *              Robots directives are excluded from that answer on purpose.
-	 *              collect_post_data() synthesises noindex/nofollow on every
-	 *              payload — absent any stored value they resolve to plain
-	 *              index/follow — so they are written on every sync and say
-	 *              nothing about whether a canonical value existed to mirror.
-	 *              Counting them would make the result unconditionally true,
-	 *              which is the bug this return contract exists to fix.
+	 *              They are written whenever MetaSync holds a robots value for
+	 *              the post (the collector drops them otherwise), so they say
+	 *              nothing about whether a title or description existed to
+	 *              mirror. Counting them would let a robots-only payload pass
+	 *              as a content sync, which is the bug this contract fixes.
 	 */
 	private function sync_yoast($post_id, array $data) {
 		if (!$this->third_party_writes_allowed()) {
@@ -772,9 +951,17 @@ class Metasync_Plugin_Sync {
 			$wrote = $this->write_post_field($post_id, '_yoast_wpseo_metadesc', $desc) || $wrote;
 		}
 
-		// noindex: '0'=default, '1'=noindex, '2'=index
+		// noindex: '0'=default, '1'=noindex, '2'=index. Only a deliberate
+		// index (the dedicated key, the meta box checkbox, or the advanced
+		// JSON's explicit noindex:false) earns '2'; a payload that merely
+		// holds no noindex writes '0' so Yoast falls back to its own default
+		// instead of an affirmative index MetaSync never chose.
 		if (array_key_exists('noindex', $data)) {
-			$val = $data['noindex'] ? '1' : '2';
+			if ($data['noindex']) {
+				$val = '1';
+			} else {
+				$val = !empty($data['robots_index_explicit']) ? '2' : '0';
+			}
 			$this->write_post_field($post_id, '_yoast_wpseo_meta-robots-noindex', $val);
 		}
 
@@ -794,13 +981,18 @@ class Metasync_Plugin_Sync {
 		if (!empty($data['noimageindex'])) {
 			$adv[] = 'noimageindex';
 		}
-		// Written unconditionally so clearing the last directive clears the
-		// field. Like the other robots writes it carries no canonical value,
-		// so it does not make this a successful sync.
-		if (!empty($adv)) {
+		// advanced robots: comma-separated NO spaces. Guarded on the payload
+		// actually carrying robots keys: a no-opinion sync (the collector
+		// drops them all) must not blank a field MetaSync has no opinion
+		// about. Opinion-carrying payloads — including the explicit all-clear
+		// — always carry the keys, so clearing the last directive still
+		// clears the field. Like the other robots writes it carries no
+		// canonical value, so it does not make this a successful sync.
+		if (array_intersect(
+			['noindex', 'nofollow', 'noarchive', 'nosnippet', 'noimageindex', 'max_snippet', 'max_image_preview', 'max_video_preview'],
+			array_keys($data)
+		)) {
 			$this->write_post_field($post_id, '_yoast_wpseo_meta-robots-adv', implode(',', $adv));
-		} else {
-			$this->write_post_field($post_id, '_yoast_wpseo_meta-robots-adv', '');
 		}
 
 		// OG
@@ -1105,7 +1297,14 @@ class Metasync_Plugin_Sync {
 			$robots = is_array($existing) ? $existing : [];
 			$robots = array_values(array_diff($robots, ['index', 'noindex', 'follow', 'nofollow']));
 			if (array_key_exists('noindex', $data)) {
-				$robots[] = $data['noindex'] ? 'noindex' : 'index';
+				if ($data['noindex']) {
+					$robots[] = 'noindex';
+				} elseif (!empty($data['robots_index_explicit'])) {
+					// A deliberate index earns Rank Math's explicit encoding;
+					// otherwise the directive stays absent and Rank Math's own
+					// defaults decide — MetaSync holds no opinion to impose.
+					$robots[] = 'index';
+				}
 			}
 			if (array_key_exists('nofollow', $data)) {
 				$robots[] = $data['nofollow'] ? 'nofollow' : 'follow';
@@ -1113,7 +1312,9 @@ class Metasync_Plugin_Sync {
 			$this->write_post_field($post_id, 'rank_math_robots', array_values(array_unique($robots)));
 		}
 
-		// Advanced robots: max-* go into rank_math_advanced_robots
+		// Advanced robots: max-* go into rank_math_advanced_robots. A null
+		// value means "remove the directive" (the all-clear payload), not
+		// "leave it alone".
 		$adv_keys = ['max_snippet', 'max_image_preview', 'max_video_preview'];
 		$has_adv = false;
 		foreach ($adv_keys as $k) {
@@ -1125,22 +1326,36 @@ class Metasync_Plugin_Sync {
 		if ($has_adv) {
 			$existing_adv = get_post_meta($post_id, 'rank_math_advanced_robots', true);
 			$adv = is_array($existing_adv) ? $existing_adv : [];
-			if (array_key_exists('max_snippet', $data) && $data['max_snippet'] !== null) {
-				$val = (int) $data['max_snippet'];
-				$adv['max-snippet'] = (string) $val;
-			}
-			if (array_key_exists('max_image_preview', $data) && $data['max_image_preview'] !== null) {
-				$allowed = ['none', 'standard', 'large'];
-				if (in_array($data['max_image_preview'], $allowed, true)) {
-					$adv['max-image-preview'] = (string) $data['max_image_preview'];
+			if (array_key_exists('max_snippet', $data)) {
+				if ($data['max_snippet'] === null) {
+					unset($adv['max-snippet']);
+				} else {
+					$adv['max-snippet'] = (string) (int) $data['max_snippet'];
 				}
 			}
-			if (array_key_exists('max_video_preview', $data) && $data['max_video_preview'] !== null) {
-				$val = (int) $data['max_video_preview'];
-				$adv['max-video-preview'] = (string) $val;
+			if (array_key_exists('max_image_preview', $data)) {
+				if ($data['max_image_preview'] === null) {
+					unset($adv['max-image-preview']);
+				} else {
+					$allowed = ['none', 'standard', 'large'];
+					if (in_array($data['max_image_preview'], $allowed, true)) {
+						$adv['max-image-preview'] = (string) $data['max_image_preview'];
+					}
+				}
+			}
+			if (array_key_exists('max_video_preview', $data)) {
+				if ($data['max_video_preview'] === null) {
+					unset($adv['max-video-preview']);
+				} else {
+					$adv['max-video-preview'] = (string) (int) $data['max_video_preview'];
+				}
 			}
 			if (!empty($adv)) {
 				$this->write_post_field($post_id, 'rank_math_advanced_robots', $adv);
+			} else {
+				// Every directive was cleared — drop the meta so Rank Math
+				// falls back to its own defaults instead of an empty array.
+				$this->write_post_field($post_id, 'rank_math_advanced_robots', '');
 			}
 		}
 
@@ -1412,7 +1627,31 @@ class Metasync_Plugin_Sync {
 		if ($has_robots) {
 			$row['robots_default'] = 0;
 			if (array_key_exists('noindex', $data)) {
-				$row['robots_noindex'] = $data['noindex'] ? 1 : 0;
+				if ($data['noindex']) {
+					$row['robots_noindex'] = 1;
+				} elseif (!empty($data['robots_index_explicit'])) {
+					$row['robots_noindex'] = 0;
+				} else {
+					// No opinion on the index axis. AIOSEO's column is a bare
+					// boolean with no "unset" encoding, so an index carried by
+					// other directives must still be written as 0 to keep a
+					// stale noindex from surviving — but when this is the only
+					// per-post directive in play, robots_default=1 hands the
+					// axis back to AIOSEO's global setting instead.
+					$other_directives = array_key_exists('nofollow', $data)
+						|| array_key_exists('noarchive', $data)
+						|| array_key_exists('nosnippet', $data)
+						|| array_key_exists('noimageindex', $data)
+						|| array_key_exists('max_snippet', $data)
+						|| array_key_exists('max_image_preview', $data)
+						|| array_key_exists('max_video_preview', $data);
+					if ($other_directives) {
+						$row['robots_noindex'] = 0;
+					} else {
+						$row['robots_default'] = 1;
+						$row['robots_noindex'] = 0;
+					}
+				}
 			}
 			if (array_key_exists('nofollow', $data)) {
 				$row['robots_nofollow'] = $data['nofollow'] ? 1 : 0;
@@ -1548,7 +1787,19 @@ class Metasync_Plugin_Sync {
 			if (!is_array($common)) {
 				$common = [];
 			}
-			foreach (['nofollow', 'noarchive', 'nosnippet', 'noimageindex'] as $dir) {
+			foreach (['noindex', 'nofollow', 'noarchive', 'nosnippet', 'noimageindex'] as $dir) {
+				// The index axis is mirrored only when the payload actually
+				// carries the key. The sidebar payload and the MCP post-meta
+				// tool omit noindex from the JSON entirely, and a JSON rebuilt
+				// from the classic box carries it only when the box ticked it —
+				// so an absent key means "no opinion", not "false". Unsetting
+				// the stored axis on every sidebar edit silently dropped a
+				// classic noindex, and the follow-up full sync then handed the
+				// page back to the third-party plugin's default, making a
+				// deliberately noindexed page indexable again.
+				if ($dir === 'noindex' && !array_key_exists('noindex', $robots)) {
+					continue;
+				}
 				if (!empty($robots[$dir])) {
 					$common[$dir] = $dir;
 				} else {
@@ -1616,9 +1867,17 @@ class Metasync_Plugin_Sync {
 
 			$json = [];
 
-			// Boolean directives from common_robots
+			// Boolean directives from common_robots. noindex is written only
+			// when ticked: resolve_explicit_index_intent() reads a JSON
+			// noindex:false as a deliberate index, and an unticked checkbox is
+			// the absence of a choice, not that choice. Keeping the rebuilt
+			// JSON free of a bare noindex:false preserves the invariant that
+			// function's JSON branch relies on (see its docblock).
 			foreach (['nofollow', 'noarchive', 'nosnippet', 'noimageindex'] as $dir) {
 				$json[$dir] = !empty($common[$dir]);
+			}
+			if (!empty($common['noindex'])) {
+				$json['noindex'] = true;
 			}
 
 			// max-* directives from advance_robots

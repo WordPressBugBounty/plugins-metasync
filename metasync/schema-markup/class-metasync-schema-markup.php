@@ -1772,6 +1772,10 @@ class Metasync_Schema_Markup
         // own tag below). Stays null while OTTO is live to avoid the duplicate.
         $otto_persisted_jsonld = null;
 
+        // Content Genius per-type structured data from the publish payload, if
+        // this post carries one (stored by Metasync_Rest_Api::apply_ca_seo_payload_fields).
+        $ca_schema_jsonld = '';
+
         // ---- Global schema: WebSite on front page, Organization on all pages ----
         $metasync_options = get_option('metasync_options', []);
         $schema_settings = isset($metasync_options['schema']) ? $metasync_options['schema'] : [];
@@ -1896,6 +1900,26 @@ class Metasync_Schema_Markup
                     }
                 }
 
+                // CA payload schema: emitted as-is, deliberately NOT gated on
+                // OTTO-live or a third-party SEO plugin (unlike the OTTO copy
+                // below). The platform sends this JSON-LD as the authoritative
+                // per-type schema for this article, so it renders wherever the
+                // article renders, independently of which SEO engine owns the
+                // rest of the structured data. Read BEFORE the OTTO-persisted
+                // gate so that copy can defer to this one.
+                //
+                // The value was validated as JSON when the publish payload was
+                // accepted, but re-check at render: a hand-edited or legacy meta
+                // row never went through that gate, and an unparseable block
+                // must not ship to crawlers inside an application/ld+json tag.
+                $ca_schema_raw = get_post_meta($post->ID, '_metasync_ca_schema_jsonld', true);
+                if (is_string($ca_schema_raw) && $ca_schema_raw !== '') {
+                    $ca_decoded = json_decode($ca_schema_raw);
+                    if (is_object($ca_decoded) || is_array($ca_decoded)) {
+                        $ca_schema_jsonld = $ca_schema_raw;
+                    }
+                }
+
                 // OTTO-persisted JSON-LD: skip only while OTTO is live — avoid
                 // duplicate; the persisted copy is output below when OTTO is off.
                 //
@@ -1905,8 +1929,17 @@ class Metasync_Schema_Markup
                 // every page. When OTTO is OFF there is no live injection and therefore
                 // no duplicate risk, yet the schema is still saved in the DB — so we surface the
                 // persisted copy as its own standalone tag after the @graph block.
+                //
+                // When a CA payload schema exists for this post it wins instead:
+                // both copies describe the same article, and emitting two
+                // standalone Article tags with potentially conflicting values
+                // is worse than surfacing the platform-authoritative copy alone.
+                // (On the OTTO render path the same precedence is enforced by
+                // the schema deduplicator, which treats the CA tag as the
+                // highest-priority copy of a type.)
                 if (
-                    isset($schema_data['otto_jsonld']['data'])
+                    $ca_schema_jsonld === ''
+                    && isset($schema_data['otto_jsonld']['data'])
                     && is_string($schema_data['otto_jsonld']['data'])
                     && $schema_data['otto_jsonld']['data'] !== ''
                     && (!class_exists('Metasync_Otto_Config') || !Metasync_Otto_Config::is_otto_enabled())
@@ -1952,6 +1985,17 @@ class Metasync_Schema_Markup
             echo '<script type="application/ld+json" class="metasync-schema metasync-otto-schema" data-otto="true">' . "\n";
             // Escape `</` -> `<\/` to prevent `</script>` breakout; valid JSON, content unchanged.
             echo metasync_escape_json_ld_for_script($otto_persisted_jsonld); // phpcs:ignore WordPress.Security.EscapeOutput -- persisted JSON-LD string, only `</` escaped for safe embedding
+            echo "\n" . '</script>' . "\n";
+        }
+
+        // Content Genius per-type JSON-LD: standalone tag emitted as-is, with
+        // only the `</` breakout escape applied — the same rule as the OTTO
+        // persisted copy above. The value was validated as JSON when the
+        // publish payload was accepted, so no re-encode round-trip that could
+        // corrupt Unicode payloads.
+        if ($ca_schema_jsonld !== '') {
+            echo '<script type="application/ld+json" class="metasync-schema metasync-ca-schema">' . "\n";
+            echo metasync_escape_json_ld_for_script($ca_schema_jsonld); // phpcs:ignore WordPress.Security.EscapeOutput -- validated JSON-LD from the authenticated publish payload, only `</` escaped for safe embedding
             echo "\n" . '</script>' . "\n";
         }
     }

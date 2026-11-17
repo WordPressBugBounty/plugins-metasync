@@ -17,16 +17,67 @@ if (!defined('ABSPATH')) {
 class Metasync_MCP_Sync_Logger {
 
     /**
-     * Tool names that represent write operations and should be logged.
-     * Covers post-meta, schema, taxonomy, redirects, robots, code snippets.
+     * Determine whether a tool execution is a write operation.
+     *
+     * The authoritative source is the MCP tool access classification: every
+     * tool not classified read-only is a write, including unlisted and
+     * third-party tools. Deriving this from name prefixes silently drifted
+     * from the access map and left writable tools (bulk operations, cache
+     * purges, sitemap regeneration, instant indexing, schema removal, OTTO
+     * optimization, custom-page import, ...) unlogged.
+     *
+     * @param string $tool_name
+     * @return bool
      */
-    private static $write_tool_prefixes = [
-        'wordpress_create_',
-        'wordpress_update_',
-        'wordpress_delete_',
-        'wordpress_set_',
-        'wordpress_add_',
-    ];
+    public static function is_write_tool($tool_name) {
+        if (!class_exists('Metasync_MCP_Tool_Access')) {
+            require_once __DIR__ . '/../includes/class-metasync-mcp-tool-access.php';
+        }
+
+        return !Metasync_MCP_Tool_Access::is_read_only_tool($tool_name);
+    }
+
+    /**
+     * Source label for the sync history row.
+     *
+     * Client-key requests are attributed to the key that made them
+     * ("MCP · <key name>") so the Sync Log shows which agent acted.
+     *
+     * @return string At most 50 characters (the source column width).
+     */
+    private static function current_source() {
+        $identity = null;
+        if (isset($GLOBALS['metasync_mcp_server']) && method_exists($GLOBALS['metasync_mcp_server'], 'get_authenticated_identity')) {
+            $identity = $GLOBALS['metasync_mcp_server']->get_authenticated_identity();
+        }
+
+        if (is_array($identity) && isset($identity['type']) && $identity['type'] === 'mcp_key' && !empty($identity['key_name'])) {
+            return substr('MCP · ' . $identity['key_name'], 0, 50);
+        }
+
+        return 'MCP Client';
+    }
+
+    /**
+     * Auth attribution for meta_data, when the request used a client key.
+     *
+     * @return array|null
+     */
+    private static function current_auth_meta() {
+        $identity = null;
+        if (isset($GLOBALS['metasync_mcp_server']) && method_exists($GLOBALS['metasync_mcp_server'], 'get_authenticated_identity')) {
+            $identity = $GLOBALS['metasync_mcp_server']->get_authenticated_identity();
+        }
+
+        if (!is_array($identity) || !isset($identity['type']) || $identity['type'] !== 'mcp_key') {
+            return null;
+        }
+
+        return [
+            'key_id'   => isset($identity['key_id']) ? (int) $identity['key_id'] : 0,
+            'key_name' => isset($identity['key_name']) ? $identity['key_name'] : '',
+        ];
+    }
 
     /**
      * Temporarily holds before-state keyed by tool name while the tool executes.
@@ -40,21 +91,6 @@ class Metasync_MCP_Sync_Logger {
     public function __construct() {
         add_action('metasync_mcp_tool_before_execute', [ $this, 'capture_before_state' ], 10, 2);
         add_action('metasync_mcp_tool_executed',       [ $this, 'log_tool_execution'  ], 10, 4);
-    }
-
-    /**
-     * Determine whether a tool name is a write operation.
-     *
-     * @param string $tool_name
-     * @return bool
-     */
-    public static function is_write_tool($tool_name) {
-        foreach (self::$write_tool_prefixes as $prefix) {
-            if (strncmp($tool_name, $prefix, strlen($prefix)) === 0) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
@@ -103,17 +139,23 @@ class Metasync_MCP_Sync_Logger {
             $post_id = isset($params['post_id']) ? intval($params['post_id']) : null;
             $url     = $post_id ? get_permalink($post_id) : null;
 
+            $meta = [
+                'tool'   => $tool_name,
+                'params' => self::redact_sensitive_params($params),
+                'before' => $before_state,
+            ];
+            $auth = self::current_auth_meta();
+            if ($auth !== null) {
+                $meta['auth'] = $auth;
+            }
+
             $sync_db->add([
                 'title'        => $this->build_log_title($tool_name, $params),
-                'source'       => 'MCP Client',
+                'source'       => self::current_source(),
                 'status'       => 'published',
                 'content_type' => $tool_name,
                 'url'          => $url ?: '',
-                'meta_data'    => wp_json_encode([
-                    'tool'   => $tool_name,
-                    'params' => self::redact_sensitive_params($params),
-                    'before' => $before_state,
-                ]),
+                'meta_data'    => wp_json_encode($meta),
                 'created_at'   => current_time('mysql'),
             ]);
         } catch (Exception $e) {
@@ -189,8 +231,10 @@ class Metasync_MCP_Sync_Logger {
             }
         }
 
-        // For all other write tools just record the params as before-state context.
-        return [ 'params_snapshot' => $params ];
+        // For all other write tools just record the params as before-state
+        // context. Redact exactly like meta.params so this snapshot never
+        // becomes the one unredacted copy of a credential in sync history.
+        return [ 'params_snapshot' => self::redact_sensitive_params($params) ];
     }
 
     /**
@@ -342,6 +386,21 @@ class Metasync_MCP_Sync_Logger {
     }
 
     /**
+     * Whether a Sync History source label represents an MCP-originated change.
+     *
+     * Covers the legacy plugin-token source ("MCP Client") and the
+     * client-key attributed form ("MCP · <key name>"). The Changes Log view
+     * and the rollback checks share this so key-attributed rows keep the
+     * MCP indicator and the rollback action.
+     *
+     * @param mixed $source
+     * @return bool
+     */
+    public static function is_mcp_source($source) {
+        return is_string($source) && strncmp($source, 'MCP', 3) === 0;
+    }
+
+    /**
      * Rollback a single sync history entry that was logged by MCP Client.
      *
      * Reads the `before` state stored in meta_data and restores it.
@@ -357,7 +416,8 @@ class Metasync_MCP_Sync_Logger {
             return [ 'success' => false, 'message' => 'Sync history record not found.' ];
         }
 
-        if ($record->source !== 'MCP Client') {
+        // Covers both "MCP Client" and attributed "MCP · <key name>" sources.
+        if (!self::is_mcp_source($record->source)) {
             return [ 'success' => false, 'message' => 'Only MCP Client entries can be rolled back.' ];
         }
 

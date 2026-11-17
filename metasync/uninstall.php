@@ -91,6 +91,7 @@ function metasync_uninstall_cleanup() {
 		'metasync_robots_txt_backups',
 		'metasync_otto_bot_stats',
 		'metasync_otto_bot_logs',
+		'metasync_mcp_keys',
 	);
 	foreach ( $tables as $table ) {
 		$wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}{$table}" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery -- static table names, no user input.

@@ -188,6 +188,10 @@ class Metasync
 			require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-bookingpress-compat.php';
 		}
 
+		if (!class_exists('Metasync_Edge_Cache_Purge')) {
+			require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-edge-cache-purge.php';
+		}
+
 		$this->loader = new Metasync_Loader();
 		// Install aggregate-option password protection in every runtime context.
 		Metasync_Settings_Registration::instance();
@@ -486,7 +490,9 @@ class Metasync
 		$this->loader->add_action('template_redirect', $plugin_hreflang, 'register_wpml_suppression', 1);
 
 		// Edge Cache: detect Cloudways Varnish and persist for settings UI
-		$this->loader->add_action('init', 'Metasync_Edge_Cache_Purge', 'detect_cloudways');
+		add_action('init', ['Metasync_Edge_Cache_Purge', 'detect_cloudways']);
+		add_action('metasync_edge_cache_purge_drainer', ['Metasync_Edge_Cache_Purge', 'handle_pending_drainer']);
+		Metasync_Edge_Cache_Purge::init_hooks();
 
 		// BookingPress starts a PHP session on every front-end request (init
 		// at priority 1), which makes hosts skip page caching site-wide. Its
@@ -1725,6 +1731,41 @@ class Metasync
 		
 		// Priority 3: Return base_name as fallback
 		return $base_name;
+	}
+
+	/**
+	 * Get the MCP server name used in generated client setup snippets.
+	 *
+	 * This is the name embedded in the Claude Code command and the Cursor
+	 * mcp.json entry the AI Agents page generates — it lands in a config file
+	 * the end customer keeps, so it is white-label aware and stricter than
+	 * get_effective_plugin_name(): in company-branding mode the company name
+	 * is used alone, because appending the base name would put "Search Atlas"
+	 * into a rebranded customer's client config.
+	 *
+	 * Priority: 1) white_label_plugin_name 2) whitelabel company_name alone
+	 * 3) effective plugin name. A name that slugifies to nothing (symbols
+	 * only) falls back to the neutral "mcp" so the snippet stays valid and
+	 * brand-free.
+	 *
+	 * @return string Lowercase slug, never empty.
+	 */
+	public static function get_mcp_server_slug()
+	{
+		$general_settings = self::get_option('general');
+		$company_name = self::get_whitelabel_company_name();
+
+		if (!empty($general_settings['white_label_plugin_name'])) {
+			$name = $general_settings['white_label_plugin_name'];
+		} elseif ($company_name) {
+			$name = $company_name;
+		} else {
+			$name = self::get_effective_plugin_name();
+		}
+
+		$slug = sanitize_title($name);
+
+		return $slug === '' ? 'mcp' : $slug;
 	}
 
 	/**

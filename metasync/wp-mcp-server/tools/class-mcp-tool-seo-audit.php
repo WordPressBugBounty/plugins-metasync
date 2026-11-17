@@ -630,7 +630,7 @@ class MCP_Tool_Detect_SEO_Conflicts extends MCP_Tool_Base {
             throw new InvalidArgumentException('Invalid URL');
         }
 
-        $response = wp_remote_get($url, [
+        $response = wp_safe_remote_get($url, [
             'user-agent' => 'MetaSync-Audit/1.0',
             'timeout' => 10,
         ]);

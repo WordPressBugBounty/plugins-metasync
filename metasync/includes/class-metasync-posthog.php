@@ -79,8 +79,20 @@ class Metasync_PostHog {
      *
      * A version change also reports plugin_updated (adoption signal);
      * plugin_uninstalled is fired from uninstall.php.
+     *
+     * The stored version (VERSION_OPTION) is deliberately non-autoloaded, so
+     * reading it is a real database query on sites without a persistent object
+     * cache. Both checks only matter to an administrator or a scheduled task,
+     * so public page views skip the read entirely instead of paying for it on
+     * every request. A version bump is still caught by the next admin or cron
+     * request, which always follows a plugin update.
      */
     public function run_version_check() {
+        $doing_cron = function_exists('wp_doing_cron') && wp_doing_cron();
+        if (!is_admin() && !$doing_cron) {
+            return;
+        }
+
         $version = defined('METASYNC_VERSION') ? METASYNC_VERSION : '0';
         $previous = get_option(self::VERSION_OPTION, '');
         if ($previous === $version) {

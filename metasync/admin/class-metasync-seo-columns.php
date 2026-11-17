@@ -643,10 +643,9 @@ class Metasync_SEO_Columns
 	 * Returns all-false when an active third-party SEO plugin owns the robots tag.
 	 * hook_metasync_metatags() only emits our robots on such a site when
 	 * Metasync_SEO_Conflict_Handler::metasync_has_robots() passes, and that method
-	 * inspects `meta_robots` and `metasync_common_robots` only — it does not know
-	 * about `_metasync_robots_index` or `_metasync_robots_advanced`. A post carrying
-	 * just those keys gets the plugin's directives on the page, so claiming ours are
-	 * in force would be wrong. Showing nothing under-reports rather than misleads.
+	 * delegates to the output layer's own resolution — every storage format the
+	 * resolver reads, `_metasync_robots_index` and `_metasync_robots_advanced`
+	 * included, counts toward the decision.
 	 *
 	 * @param  array $all_meta Result of get_post_meta($post_id).
 	 * @return array{noindex:bool,nofollow:bool}
@@ -739,12 +738,11 @@ class Metasync_SEO_Columns
 			return true;
 		}
 
-		if (!empty($all_meta['meta_robots'][0] ?? '')) {
-			return true;
-		}
-
-		$common = maybe_unserialize($all_meta['metasync_common_robots'][0] ?? '');
-		return is_array($common) && !empty(array_filter($common));
+		// Same decision the front end makes: MetaSync's robots reach the page
+		// when the emitter would render a value for them. Delegating keeps the
+		// column honest about sidebar-stored robots instead of consulting a
+		// partial key list that misses them.
+		return Metasync_Seo_Output::holds_robots_value($all_meta);
 	}
 
 	/**

@@ -487,7 +487,9 @@ class Metasync_Robots_Txt
         // actually enabled/generated. When it is off the URL does not serve
         // valid XML (it 404s or returns an HTML page), so pointing crawlers at
         // it is wrong.
-        if ($this->sitemap_feature_enabled()) {
+        // Same-statement guard: an absent headless class (upgrade window,
+        // isolated harness) must mean "not headless", so the line is written.
+        if ($this->sitemap_feature_enabled() && (!class_exists('Metasync_Headless_Config') || !Metasync_Headless_Config::is_active())) {
             $content .= "\n\nSitemap: {$site_url}/sitemap_index.xml";
         }
 

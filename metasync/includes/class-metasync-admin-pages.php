@@ -1762,6 +1762,25 @@ class Metasync_Admin_Pages
         $this->admin->render_layout_close();
     }
 
+    public function create_admin_mcp_keys_page()
+    {
+        if (!current_user_can('manage_options')) {
+            wp_die(esc_html__('You do not have permission to manage MCP keys.', 'metasync'));
+        }
+
+        require_once plugin_dir_path(dirname(__FILE__)) . 'wp-mcp-server/class-metasync-mcp-keys.php';
+        require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-mcp-tool-inventory.php';
+
+        $keys = Metasync_MCP_Keys::get_all_keys();
+        $mcp_tool_inventory = Metasync_MCP_Tool_Inventory::get_instance();
+        $mcp_tools = $mcp_tool_inventory->get_grouped_tools();
+        $mcp_tool_totals = $mcp_tool_inventory->get_totals();
+
+        $this->admin->render_layout_open('AI Agents (MCP)', 'mcp_keys', 'Create and manage per-client MCP keys so AI agents can connect to this site.');
+        require_once plugin_dir_path(dirname(__FILE__)) . 'views/metasync-mcp-keys.php';
+        $this->admin->render_layout_close();
+    }
+
     public function create_admin_search_engine_verification_page()
     {
         $page_slug = Metasync_Admin::$page_slug . '_searchengines-verification';

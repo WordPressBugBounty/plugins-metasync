@@ -202,6 +202,14 @@ class Metasync_Sitemap_Video
         $page = 1;
         $posts_per_page = 500;
 
+        // Hoisted once: under headless every candidate loc must convert to the
+        // frontend domain or the entry is dropped. class_exists guards the
+        // upgrade window where the headless classes are not loadable; missing
+        // means "not headless".
+        $video_headless = class_exists('Metasync_Headless_Config') && Metasync_Headless_Config::is_active();
+        $video_offered = 0;
+        $video_kept = 0;
+
         while ($total_video_entries < $this->max_video_entries) {
             $query_args = [
                 'post_type'              => $post_types,
@@ -240,6 +248,15 @@ class Metasync_Sitemap_Video
                 }
 
                 $permalink = get_permalink($post->ID);
+                $loc_url = $permalink;
+                if ($video_headless) {
+                    $video_offered++;
+                    $loc_url = Metasync_Headless_Url_Builder::from_wp_url($permalink, (string) $post->post_type);
+                    if ($loc_url === '') {
+                        continue;
+                    }
+                    $video_kept++;
+                }
 
                 // Skip excluded URLs
                 if (!empty($excluded_urls) && isset($excluded_urls[$permalink])) {
@@ -262,7 +279,7 @@ class Metasync_Sitemap_Video
                 }
 
                 $url_element = $xml->createElement('url');
-                $loc = $xml->createElement('loc', esc_url($permalink));
+                $loc = $xml->createElement('loc', esc_url($loc_url));
                 $url_element->appendChild($loc);
 
                 $has_valid_video       = false;
@@ -382,6 +399,13 @@ class Metasync_Sitemap_Video
 
             unset($posts);
             $page++;
+        }
+
+        // A headless run where every candidate loc was refused would replace
+        // the previous good video sitemap with an empty urlset. Refuse the
+        // generation instead; the stored document stays.
+        if ($video_headless && $video_offered > 0 && $video_kept === 0) {
+            return false;
         }
 
         return $xml->saveXML();

@@ -24,6 +24,7 @@ class Metasync_Seo_Output
 	private $version;
 	private $common;
 	private $metasync_option_data;
+	private $missing_seo_buffer_level = null;
 
 	public function __construct($plugin_name, $version)
 	{
@@ -34,6 +35,53 @@ class Metasync_Seo_Output
 
 		// Filter permalink to use primary category (for canonical URLs and sitemaps)
 		add_filter('post_link_category', array($this, 'filter_post_link_category_primary'), 10, 3);
+
+		// Safety net for themes that omit <title> or a standard description.
+		// The buffer is scoped to wp_head, so it adds no work to the page body and
+		// only reads post data when a tag is actually missing.
+		add_action('wp_head', array($this, 'start_missing_seo_buffer'), 0);
+		add_action('wp_head', array($this, 'end_missing_seo_buffer'), PHP_INT_MAX);
+
+		// Content Genius html_lang override on the <html> tag
+		add_filter('language_attributes', array($this, 'filter_language_attributes'));
+	}
+
+	/**
+	 * Apply a Content Genius per-post language to the <html> tag.
+	 *
+	 * Non-English articles published through the sync API carry an html_lang
+	 * payload field, stored as _metasync_html_lang (see
+	 * Metasync_Rest_Api::apply_ca_seo_payload_fields). When present and
+	 * well-formed, it replaces the lang="..." segment WP would have emitted;
+	 * everything else in the attribute string (dir="rtl" etc.) is preserved.
+	 * Posts without the meta — every existing publish — render unchanged.
+	 *
+	 * @param string $output The attributes WP generated for the <html> tag.
+	 * @return string Filtered attribute string.
+	 */
+	public function filter_language_attributes($output)
+	{
+		if (!is_singular()) {
+			return $output;
+		}
+		$post = get_queried_object();
+		if (!is_object($post) || empty($post->ID)) {
+			return $output;
+		}
+		$lang = get_post_meta((int) $post->ID, '_metasync_html_lang', true);
+		if (!is_string($lang) || $lang === '') {
+			return $output;
+		}
+		# Same shape the REST layer validated on save; re-checked so a value
+		# injected by hand into post meta can never emit a broken attribute.
+		if (1 !== preg_match('/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/', $lang)) {
+			return $output;
+		}
+		if (strpos($output, 'lang=') !== false) {
+			$new = (string) preg_replace('/lang="[^"]*"/', 'lang="' . esc_attr($lang) . '"', $output, 1);
+			return ($new === '') ? $output : $new;
+		}
+		return 'lang="' . esc_attr($lang) . '" ' . $output;
 	}
 
 	/**
@@ -222,6 +270,69 @@ class Metasync_Seo_Output
 		}
 	}
 
+	public function start_missing_seo_buffer()
+	{
+		if (function_exists('is_singular') && is_singular()) {
+			ob_start();
+			$this->missing_seo_buffer_level = ob_get_level();
+		}
+	}
+
+	public function end_missing_seo_buffer()
+	{
+		if (!function_exists('is_singular') || !is_singular()
+			|| $this->missing_seo_buffer_level === null
+			|| ob_get_level() !== $this->missing_seo_buffer_level) {
+			return;
+		}
+		$this->missing_seo_buffer_level = null;
+		$html = ob_get_clean();
+		if (!is_string($html) || $html === '') { return; }
+		$post_id = (int) get_queried_object_id();
+		if (!$post_id) {
+                // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Preserve the complete wp_head HTML fragment, not a text value.
+                echo $html;
+                return;
+            }
+					$title_probe = preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html);
+						if (preg_match('/<title\b[^>]*>.*?<\/title>/is', (string) $title_probe) !== 1) {
+			$title = function_exists('wp_get_document_title') ? wp_get_document_title() : '';
+			$title = $title !== '' ? $title : get_the_title($post_id) . ' | ' . get_bloginfo('name');
+			$tag = '<title>' . esc_html($title) . '</title>';
+			$html = $tag . "\n" . $html;
+		}
+		if (preg_match('/<meta\s[^>]*(?<![-\w])name\s*=\s*["\']description["\'][^>]*\/?>/i', $html) !== 1) {
+			$description = '';
+			try {
+				if (function_exists('YoastSEO')) {
+					$yoast = YoastSEO();
+					$meta = is_object($yoast) && isset($yoast->meta) ? $yoast->meta->for_current_page() : null;
+					$description = is_object($meta) ? (string) ($meta->description ?? '') : '';
+				}
+				if ($description === '' && class_exists('RankMath\\Paper\\Paper')) { $description = (string) \RankMath\Paper\Paper::get()->get_description(); }
+				if ($description === '' && function_exists('aioseo')) {
+					$aioseo = aioseo();
+					if (is_object($aioseo) && isset($aioseo->meta->description)
+						&& is_object($aioseo->meta->description)
+						&& method_exists($aioseo->meta->description, 'getDescription')) {
+						$description = (string) $aioseo->meta->description->getDescription((int) $post_id);
+					}
+				}
+			} catch (\Throwable $e) { $description = ''; }
+			if ($description === '') {
+				$post = get_post($post_id);
+				$content = $post ? wp_strip_all_tags(strip_shortcodes($post->post_content)) : '';
+				$description = wp_trim_words(preg_replace('/\s+/', ' ', $content), 30, '');
+			}
+			if ($description !== '') {
+				$tag = '<meta name="description" content="' . esc_attr($description) . '" />';
+				$html = $tag . "\n" . $html;
+			}
+		}
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- complete buffered HTML
+		echo $html;
+	}
+
 	public function hook_metasync_metatags()
 	{
 		$conflict_handler = Metasync_SEO_Conflict_Handler::get_instance();
@@ -264,16 +375,14 @@ class Metasync_Seo_Output
 
 		$list_page_meta = array();
 
-		// When synced to an active SEO plugin, skip MetaSync's own
-		// robots and description output — the native plugin handles it.
+		// Skip MetaSync's own robots output only when the post was synced to a
+		// plugin that is still active — that plugin emits the tag from its own
+		// storage. A stamp left by a plugin the user has since switched away
+		// from must not silence MetaSync too: the suppression side only passes
+		// through for the synced AND active plugin, so skipping here as well
+		// would leave the page with no robots tag at all.
 		$post_id = get_the_ID();
-		$is_synced_to_plugin = false;
-		if ($post_id && $conflict_handler->has_active_seo_plugin()) {
-			$sync_ts = get_post_meta($post_id, '_metasync_plugin_sync_ts', true);
-			if (!empty($sync_ts)) {
-				$is_synced_to_plugin = true;
-			}
-		}
+		$is_synced_to_plugin = $post_id && $conflict_handler->synced_plugin_is_active($post_id);
 
 		// Robots: resolve from both meta_robots (REST API) and metasync_common_robots (checkbox).
 		// When a third-party SEO plugin is active:
@@ -967,10 +1076,77 @@ class Metasync_Seo_Output
 			return '';
 		}
 
-		return $this->filter_robots_by_enabled_features(
+		return self::filter_robots_by_enabled_features(
 			self::resolve_robots_value_raw($all_meta),
 			$all_meta
 		);
+	}
+
+	/**
+	 * Whether MetaSync holds a per-post robots value — the single "is the
+	 * tag ours to claim" decision shared by the emit gate and the
+	 * third-party suppression filters.
+	 *
+	 * Defined as "the emitter would render a non-empty value from this
+	 * post's OWN storage", so it can never drift from what the page actually
+	 * shows for a post-specific choice: every storage format the resolver
+	 * reads counts (meta_robots, metasync_common_robots,
+	 * metasync_advance_robots, _metasync_robots_index, _metasync_robots_advanced),
+	 * and the feature switches are honoured the same way emission honours
+	 * them. Site-wide defaults deliberately do NOT count — the emitter ships
+	 * max-image-preview:large everywhere, but that is configuration, not a
+	 * per-post value, and letting it claim the tag would suppress every
+	 * third-party robots tag on the site. A post whose only stored value is
+	 * an implicit "index" holds no value either — the dedicated sidebar key
+	 * and the meta-box checkbox contribute nothing for it, and suppressing
+	 * the third party's tag while emitting nothing would leave the page with
+	 * no robots tag at all. An explicit `meta_robots` string ("index" PUT via
+	 * the REST API) is different: the emitter renders the stored string
+	 * verbatim, so that string counts as a value here and claims the tag.
+	 *
+	 * @param  array $all_meta Result of get_post_meta($id) (all meta as arrays).
+	 * @return bool
+	 */
+	public static function holds_robots_value(array $all_meta) {
+		if (Metasync_Feature_Flags::robots_fully_disabled()) {
+			return false;
+		}
+
+		return self::filter_robots_by_enabled_features(
+			self::resolve_robots_value_raw($all_meta, false),
+			$all_meta
+		) !== '';
+	}
+
+	/**
+	 * Read a post's robot storage in the shape resolve_robots_value_raw()
+	 * expects, one key at a time.
+	 *
+	 * Reading the five robot keys individually instead of via a full
+	 * get_post_meta($id)/get_post_custom() dump keeps this usable from
+	 * hook contexts where those whole-post helpers are not stubbed — the
+	 * delete bridge being the notable one. WordPress memoises meta reads,
+	 * so the per-key calls cost nothing beyond the first.
+	 *
+	 * @param  int $post_id Post ID.
+	 * @return array<string, array<int, mixed>> Meta map in get_post_meta($id) shape.
+	 */
+	public static function robots_meta_snapshot($post_id) {
+		$meta = [];
+		foreach ([
+			'meta_robots',
+			'metasync_common_robots',
+			'metasync_advance_robots',
+			'_metasync_robots_index',
+			'_metasync_robots_advanced',
+		] as $key) {
+			$value = get_post_meta($post_id, $key, true);
+			if ($value !== '' && $value !== null) {
+				$meta[$key] = [$value];
+			}
+		}
+
+		return $meta;
 	}
 
 	/**
@@ -1015,7 +1191,7 @@ class Metasync_Seo_Output
 	 * @param  array  $all_meta Raw meta, used to recover stripped directives.
 	 * @return string Filtered robots string, or empty when nothing survives.
 	 */
-	private function filter_robots_by_enabled_features($value, $all_meta = []) {
+	private static function filter_robots_by_enabled_features($value, $all_meta = []) {
 		$value = (string) $value;
 		if ($value === '') {
 			return '';
@@ -1049,7 +1225,7 @@ class Metasync_Seo_Output
 		// off (both-enabled returned early above), so this is exactly the
 		// stripped case and not a genuinely empty robots value.
 		if ($advanced_enabled && empty($kept) && !empty($all_meta)) {
-			foreach (explode(',', $this->resolve_advanced_directives($all_meta)) as $directive) {
+			foreach (explode(',', self::resolve_advanced_directives($all_meta)) as $directive) {
 				$directive = trim($directive);
 				if ($directive !== '') {
 					$kept[] = $directive;
@@ -1070,7 +1246,7 @@ class Metasync_Seo_Output
 	 * @param  array $all_meta Result of get_post_meta($id) (all meta as arrays).
 	 * @return string Comma-separated advanced directives, or empty.
 	 */
-	private function resolve_advanced_directives($all_meta) {
+	private static function resolve_advanced_directives($all_meta) {
 		$directives = [];
 
 		$advanced_raw = $all_meta['_metasync_robots_advanced'][0] ?? '';
@@ -1127,9 +1303,17 @@ class Metasync_Seo_Output
 	 * and merged into the final string regardless of which storage format is used.
 	 *
 	 * @param  array $all_meta Result of get_post_meta($id) (all meta as arrays).
+	 * @param  bool  $include_global_defaults When false, only per-post storage
+	 *                counts: the site-wide advance-robots defaults and the
+	 *                AC-1 max-image-preview:large fallback are skipped, so an
+	 *                empty answer genuinely means "this post holds no robots
+	 *                value". The suppression decision and the sync collector
+	 *                rely on that distinction — a global default is not a
+	 *                per-post choice and must neither suppress a third
+	 *                party's tag nor be written into its storage.
 	 * @return string Robots directive string (e.g. "nofollow, noarchive, max-snippet:-1") or empty.
 	 */
-	public static function resolve_robots_value_raw($all_meta) {
+	public static function resolve_robots_value_raw($all_meta, $include_global_defaults = true) {
 		$directives = [];
 
 		// Merge noindex from _metasync_robots_index (separate key, not part of advanced JSON)
@@ -1229,6 +1413,14 @@ class Metasync_Seo_Output
 		if (!empty($directives)) {
 			$directives = self::strip_serving_directives_if_noindex($directives);
 			return implode(', ', array_unique($directives));
+		}
+
+		// Everything below is site-wide configuration, not a per-post choice.
+		// Callers asking "does this post hold a robots value?" stop here: an
+		// empty per-post answer must stay empty even though the emitter would
+		// still ship the global defaults.
+		if (!$include_global_defaults) {
+			return '';
 		}
 
 		// 4. Global defaults from metasync_options['advance_robots_meta']

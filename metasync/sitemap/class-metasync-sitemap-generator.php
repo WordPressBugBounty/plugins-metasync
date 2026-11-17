@@ -393,6 +393,142 @@ class Metasync_Sitemap_Generator
         add_action('metasync_redirections_changed',  array($this, 'bust_sitemap_cache'));
         add_action('rank_math/redirection/deleted',  array($this, 'bust_sitemap_cache'));
         add_action('rank_math/redirection/get_redirections_query', array($this, 'bust_sitemap_cache'));
+
+        // Headless settings decide which host every <loc> names, so a change to
+        // them invalidates cached XML just as surely as editing a post does.
+        // Hooked on the option rather than on Metasync_Headless_Config's own
+        // writer: WP-CLI, sync tooling and any direct update_option() call
+        // bypass that writer entirely, and those are exactly the paths where a
+        // silently stale sitemap would survive.
+        // The option name is resolved defensively: isolated harnesses
+        // (subprocess tests) may define a stub Metasync without the constant,
+        // and a constructor must never fatal over a hook name.
+        $option_hook = (class_exists('Metasync') && defined('Metasync::option_name'))
+            ? constant('Metasync::option_name')
+            : 'metasync_options';
+        add_action('update_option_' . $option_hook, array($this, 'bust_sitemap_on_headless_change'), 10, 2);
+        add_action('add_option_' . $option_hook, array($this, 'bust_sitemap_on_headless_add'), 10, 2);
+    }
+
+    /**
+     * Rebuild the sitemap when the headless settings change.
+     *
+     * Compares only the `headless` slice, so unrelated writes to the shared
+     * option (API keys, OTTO toggles, anything else living under
+     * `metasync_options`) do not trigger a pointless regeneration.
+     *
+     * Marks the sitemap families stale rather than purging them: the previous
+     * copy — naming the previous domain — stays readable until a successful
+     * rebuild swaps it in, which beats an empty sitemap while a rebuild is
+     * pending.
+     *
+     * @param mixed $old_value Previous option value.
+     * @param mixed $new_value New option value.
+     * @return void
+     */
+    public function bust_sitemap_on_headless_change($old_value, $new_value)
+    {
+        $before = (is_array($old_value) && isset($old_value['headless']) && is_array($old_value['headless']))
+            ? $old_value['headless']
+            : array();
+        $after = (is_array($new_value) && isset($new_value['headless']) && is_array($new_value['headless']))
+            ? $new_value['headless']
+            : array();
+
+        if ($this->headless_settings_match($before, $after)) {
+            return;
+        }
+
+        # The memo is populated from the pre-write value, so anything reading
+        # config during this request — including the regeneration below when it
+        # runs inline — would otherwise resolve the old domain.
+        if (class_exists('Metasync_Headless_Config')) {
+            Metasync_Headless_Config::flush();
+        }
+
+        # A Sitemap: line written while headless was off names the WordPress
+        # host. Generation suppresses the line but does not retract it, so left
+        # alone it keeps advertising the backend indefinitely.
+        $this->retract_stale_robots_sitemap_lines();
+
+        $this->mark_sitemaps_stale();
+
+        # Switching headless back off must restore the robots Sitemap: line
+        # the switch-on retracted. Generation would do it, but generation is
+        # lazy and a backend that serves a sitemap without advertising it in
+        # robots.txt stays that way until something else happens to rebuild.
+        if (!class_exists('Metasync_Headless_Config') || !Metasync_Headless_Config::is_active()) {
+            $this->update_robots_txt_sitemap();
+        }
+    }
+
+    /**
+     * Treat the first write of the option as a change when it carries headless
+     * settings, so a site configured before this hook existed still rebuilds.
+     *
+     * @param string $option    Option name.
+     * @param mixed  $new_value New option value.
+     * @return void
+     */
+    public function bust_sitemap_on_headless_add($option, $new_value)
+    {
+        $this->bust_sitemap_on_headless_change(array(), $new_value);
+    }
+
+    /**
+     * Compare two headless settings arrays by value, order-independently.
+     *
+     * A plain `==` would report a change when a form rewrites the same values
+     * in a different key order, or stores `'1'` where the default held `true`.
+     *
+     * @param array $a
+     * @param array $b
+     * @return bool True when the two describe the same configuration.
+     */
+    private function headless_settings_match($a, $b)
+    {
+        $normalize = static function ($settings) {
+            if (!is_array($settings)) {
+                return array();
+            }
+            $flat = array();
+            foreach ($settings as $key => $value) {
+                if (is_array($value)) {
+                    ksort($value);
+                    $flat[$key] = wp_json_encode($value);
+                    continue;
+                }
+                if (is_bool($value)) {
+                    $flat[$key] = $value ? '1' : '';
+                    continue;
+                }
+                $flat[$key] = (string) $value;
+            }
+            ksort($flat);
+            return $flat;
+        };
+
+        return $normalize($a) === $normalize($b);
+    }
+
+    /**
+     * Remove any Sitemap: line this plugin wrote for its own sitemap files.
+     *
+     * Only runs while headless is active, and only for the URLs the plugin
+     * itself advertises — a line another plugin or the operator added by hand
+     * is left alone.
+     *
+     * @return void
+     */
+    private function retract_stale_robots_sitemap_lines()
+    {
+        if (!class_exists('Metasync_Headless_Config') || !Metasync_Headless_Config::is_active()) {
+            return;
+        }
+
+        $this->remove_robots_sitemap_line($this->sitemap_index_url);
+        $this->remove_robots_sitemap_line(home_url('/news-sitemap.xml'));
+        $this->remove_robots_sitemap_line(home_url('/video-sitemap.xml'));
     }
 
     /**
@@ -678,6 +814,8 @@ class Metasync_Sitemap_Generator
                 set_transient('metasync_sitemap_robots_updated', $robots_result, 60);
             }
 
+            do_action('metasync_sitemap_changed');
+
             return true;
 
         } catch (Exception $e) {
@@ -780,17 +918,28 @@ class Metasync_Sitemap_Generator
 
         // Add homepage first
         $home_url = home_url('/');
-        $urls[] = [
-            'loc' => $home_url,
-            'lastmod' => get_lastpostmodified('gmt'),
-            'priority' => '1.0',
-            'changefreq' => 'daily',
-        ];
+        // Same-statement guard: collect_all_urls runs in isolated harnesses
+        // and upgrade windows where the headless classes may not be loadable;
+        // an absent class must mean "not headless".
+        $headless_active = class_exists('Metasync_Headless_Config') && Metasync_Headless_Config::is_active();
+        $home_loc = $home_url;
+        if ($headless_active) {
+            $home_loc = Metasync_Headless_Url_Builder::from_wp_url($home_url, '');
+        }
+
+        if (!$headless_active || $home_loc !== '') {
+            $urls[] = [
+                'loc' => $home_loc,
+                'lastmod' => get_lastpostmodified('gmt'),
+                'priority' => '1.0',
+                'changefreq' => 'daily',
+            ];
+        }
 
         // Track seen URLs to prevent duplicates (e.g. front page appearing again from posts query).
         // Normalize with untrailingslashit() to avoid trailing-slash mismatches between
         // home_url('/') and get_permalink() for static front pages.
-        $seen_urls = [untrailingslashit($home_url) => true];
+        $seen_urls = (!$headless_active || $home_loc !== '') ? [untrailingslashit($home_url) => true] : [];
 
         // Build taxonomy query for category/tag filtering (only when explicitly configured).
         // Each term filter is OR-ed with a NOT EXISTS clause: the query runs across all
@@ -959,6 +1108,13 @@ class Metasync_Sitemap_Generator
                 // Note: get_permalink() respects the post_link_category filter registered
                 // in Metasync_Seo_Output, which automatically resolves the primary category.
                 $permalink = get_permalink($post);
+                $loc = $permalink;
+                if ($headless_active) {
+                    $loc = Metasync_Headless_Url_Builder::from_wp_url($permalink, (string) $post->post_type);
+                    if ($loc === '') {
+                        continue;
+                    }
+                }
 
                 // Skip URLs with query strings (e.g. ?wpr_mega_menu=... internal items).
                 // Only when the site uses pretty permalinks — under the plain permalink
@@ -988,7 +1144,7 @@ class Metasync_Sitemap_Generator
                 $seen_urls[$normalized_permalink] = true;
 
                 $urls[] = [
-                    'loc' => $permalink,
+                    'loc' => $loc,
                     'lastmod' => $post->post_modified_gmt,
                     'priority' => $priority,
                     'changefreq' => $changefreq,
@@ -1095,6 +1251,14 @@ class Metasync_Sitemap_Generator
                     continue;
                 }
 
+                $loc = $term_link;
+                if ($headless_active) {
+                    $loc = Metasync_Headless_Url_Builder::from_wp_url($term_link, '');
+                    if ($loc === '') {
+                        continue;
+                    }
+                }
+
                 // Term archives obey the same rule as posts: a redirecting
                 // archive URL is not advertised, its destination is.
                 if ($this->is_redirect_source($term_link, $redirect_sources)) {
@@ -1118,7 +1282,7 @@ class Metasync_Sitemap_Generator
                     ? $lastmod_map[(int) $term->term_id]
                     : current_time('mysql', 1);
                 $urls[] = [
-                    'loc' => $term_link,
+                    'loc' => $loc,
                     'lastmod' => $lastmod,
                     'priority' => '0.6',
                     'changefreq' => 'weekly',
@@ -2170,6 +2334,13 @@ class Metasync_Sitemap_Generator
      */
     public function update_robots_txt_sitemap()
     {
+        if (class_exists('Metasync_Headless_Config') && Metasync_Headless_Config::is_active()) {
+            return [
+                'success' => true,
+                'action'  => 'skipped',
+            ];
+        }
+
         // Load the robots.txt class if not already loaded
         if (!class_exists('Metasync_Robots_Txt')) {
             $robots_txt_file = plugin_dir_path(dirname(__FILE__)) . 'robots-txt/class-metasync-robots-txt.php';
@@ -2218,21 +2389,25 @@ class Metasync_Sitemap_Generator
         }
         $this->clear_sitemap_family_stale('news');
 
-        // Add to robots.txt
-        if (!class_exists('Metasync_Robots_Txt')) {
-            $robots_txt_file = plugin_dir_path(dirname(__FILE__)) . 'robots-txt/class-metasync-robots-txt.php';
-            if (file_exists($robots_txt_file)) {
-                require_once $robots_txt_file;
+        if (!class_exists('Metasync_Headless_Config') || !Metasync_Headless_Config::is_active()) {
+            // Add to robots.txt
+            if (!class_exists('Metasync_Robots_Txt')) {
+                $robots_txt_file = plugin_dir_path(dirname(__FILE__)) . 'robots-txt/class-metasync-robots-txt.php';
+                if (file_exists($robots_txt_file)) {
+                    require_once $robots_txt_file;
+                }
             }
+
+            if (class_exists('Metasync_Robots_Txt')) {
+                $robots_txt = Metasync_Robots_Txt::get_instance();
+                $robots_txt->add_sitemap_url(home_url('/news-sitemap.xml'));
+            }
+
+            // Ping Google
+            $news->ping_google(home_url('/news-sitemap.xml'));
         }
 
-        if (class_exists('Metasync_Robots_Txt')) {
-            $robots_txt = Metasync_Robots_Txt::get_instance();
-            $robots_txt->add_sitemap_url(home_url('/news-sitemap.xml'));
-        }
-
-        // Ping Google
-        $news->ping_google(home_url('/news-sitemap.xml'));
+        do_action('metasync_sitemap_changed');
 
         return true;
     }
@@ -2279,18 +2454,22 @@ class Metasync_Sitemap_Generator
             false
         );
 
-        // Add to robots.txt
-        if (!class_exists('Metasync_Robots_Txt')) {
-            $robots_txt_file = plugin_dir_path(dirname(__FILE__)) . 'robots-txt/class-metasync-robots-txt.php';
-            if (file_exists($robots_txt_file)) {
-                require_once $robots_txt_file;
+        if (!class_exists('Metasync_Headless_Config') || !Metasync_Headless_Config::is_active()) {
+            // Add to robots.txt
+            if (!class_exists('Metasync_Robots_Txt')) {
+                $robots_txt_file = plugin_dir_path(dirname(__FILE__)) . 'robots-txt/class-metasync-robots-txt.php';
+                if (file_exists($robots_txt_file)) {
+                    require_once $robots_txt_file;
+                }
+            }
+
+            if (class_exists('Metasync_Robots_Txt')) {
+                $robots_txt = Metasync_Robots_Txt::get_instance();
+                $robots_txt->add_sitemap_url(home_url('/video-sitemap.xml'));
             }
         }
 
-        if (class_exists('Metasync_Robots_Txt')) {
-            $robots_txt = Metasync_Robots_Txt::get_instance();
-            $robots_txt->add_sitemap_url(home_url('/video-sitemap.xml'));
-        }
+        do_action('metasync_sitemap_changed');
 
         return true;
     }

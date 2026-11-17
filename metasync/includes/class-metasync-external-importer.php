@@ -17,6 +17,8 @@ if (!defined('ABSPATH')) {
 
 class Metasync_External_Importer
 {
+    private const SCHEMA_SCAN_BATCH_SIZE = 500;
+
     private $db_redirection;
     private $redirection_importer;
 
@@ -225,17 +227,18 @@ class Metasync_External_Importer
     private function check_schema_data($plugin, &$count)
     {
         $count = 0;
-        $importable_posts = [];
+        $matched_post_id = 0;
 
         switch ($plugin) {
             case 'yoast':
                 foreach ($this->yoast_schema_candidate_rows(true) as $row) {
                     $post_id = (int) $row->post_id;
-                    if (isset($importable_posts[$post_id])) {
+                    if ($matched_post_id === $post_id) {
                         continue;
                     }
                     if ($this->yoast_schema_source_is_supported($row->meta_key, $row->meta_value) !== null) {
-                        $importable_posts[$post_id] = true;
+                        $matched_post_id = $post_id;
+                        $count++;
                     }
                 }
                 break;
@@ -243,11 +246,12 @@ class Metasync_External_Importer
             case 'rankmath':
                 foreach ($this->rankmath_schema_candidate_rows(true) as $row) {
                     $post_id = (int) $row->post_id;
-                    if (isset($importable_posts[$post_id])) {
+                    if ($matched_post_id === $post_id) {
                         continue;
                     }
                     if ($this->rankmath_schema_source_is_supported($row->meta_key, $row->meta_value) !== null) {
-                        $importable_posts[$post_id] = true;
+                        $matched_post_id = $post_id;
+                        $count++;
                     }
                 }
                 break;
@@ -257,17 +261,16 @@ class Metasync_External_Importer
                 // they are filtered out before eligibility is even evaluated.
                 foreach ($this->aioseo_schema_candidate_rows(true) as $row) {
                     $post_id = (int) $row->post_id;
-                    if (isset($importable_posts[$post_id])) {
+                    if ($matched_post_id === $post_id) {
                         continue;
                     }
                     if ($this->aioseo_schema_source_is_supported($row->schema_type, $row->schema_type_options) !== null) {
-                        $importable_posts[$post_id] = true;
+                        $matched_post_id = $post_id;
+                        $count++;
                     }
                 }
                 break;
         }
-
-        $count = count($importable_posts);
 
         return $count > 0;
     }
@@ -282,22 +285,48 @@ class Metasync_External_Importer
      *                        Only the detector sets this: the importers must see
      *                        every candidate so they can report those posts as
      *                        already imported rather than silently dropping them.
-     * @return array<object> Rows with post_id, meta_key and meta_value.
+     * @param  int  $batch_size Maximum rows fetched per query.
+     * @return \Generator Rows in post/key/ID order.
      */
-    private function yoast_schema_candidate_rows($only_new = false)
+    private function yoast_schema_candidate_rows($only_new = false, $batch_size = self::SCHEMA_SCAN_BATCH_SIZE)
     {
         global $wpdb;
 
-        $query = "SELECT post_id, meta_key, meta_value
+        $query = "SELECT meta_id, post_id, meta_key, meta_value
             FROM {$wpdb->postmeta}
             WHERE (meta_key = '_yoast_wpseo_schema' OR meta_key = '_yoast_wpseo_schema_article_type')
             AND meta_value != ''
             AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
             " . ($only_new ? $this->sql_exclude_posts_with_metasync_schema($wpdb->postmeta) : '') . "
-            ORDER BY post_id ASC";
+            ";
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists; table names come from wpdb, exclusion fragment is class-built SQL
-        return (array) $wpdb->get_results($query);
+        $batch_size = max(1, (int) $batch_size);
+        $last_post_id = 0;
+        $last_key = '';
+        $last_id = 0;
+
+        // Keysets do not shift when earlier rows are deleted or inserted.
+        // Rows inserted behind the cursor are intentionally left for the next scan.
+        do {
+            $cursor = '';
+            if ($last_post_id > 0) {
+                $cursor = $wpdb->prepare(
+                    ' AND (post_id > %d OR (post_id = %d AND (meta_key > %s OR (meta_key = %s AND meta_id > %d))))',
+                    $last_post_id, $last_post_id, $last_key, $last_key, $last_id
+                );
+            }
+            $limit = $wpdb->prepare(' LIMIT %d', $batch_size);
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists; table names come from wpdb, exclusion fragment is class-built SQL
+            $rows = (array) $wpdb->get_results($query . $cursor . ' ORDER BY post_id ASC, meta_key ASC, meta_id ASC' . $limit);
+            foreach ($rows as $row) {
+                $last_post_id = (int) $row->post_id;
+                $last_key = (string) ($row->meta_key ?? '');
+                $last_id = (int) ($row->meta_id ?? 0);
+                yield $row;
+            }
+            $has_more = count($rows) === $batch_size;
+            unset($rows);
+        } while ($has_more);
     }
 
     /**
@@ -305,13 +334,14 @@ class Metasync_External_Importer
      * posts. Shortcode schemas are excluded, as the importer always has.
      *
      * @param  bool $only_new Skip posts that already hold a MetaSync schema block.
-     * @return array<object> Rows with post_id, meta_key and meta_value.
+     * @param  int  $batch_size Maximum rows fetched per query.
+     * @return \Generator Rows in post/key/ID order.
      */
-    private function rankmath_schema_candidate_rows($only_new = false)
+    private function rankmath_schema_candidate_rows($only_new = false, $batch_size = self::SCHEMA_SCAN_BATCH_SIZE)
     {
         global $wpdb;
 
-        $query = "SELECT pm.post_id, pm.meta_key, pm.meta_value
+        $query = "SELECT pm.meta_id, pm.post_id, pm.meta_key, pm.meta_value
             FROM {$wpdb->postmeta} pm
             WHERE pm.meta_key LIKE 'rank_math_schema_%'
             AND pm.meta_key NOT LIKE 'rank_math_shortcode_schema_%'
@@ -319,28 +349,54 @@ class Metasync_External_Importer
             AND pm.meta_value != 'a:0:{}'
             AND pm.post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
             " . ($only_new ? $this->sql_exclude_posts_with_metasync_schema('pm') : '') . "
-            ORDER BY pm.post_id ASC";
+            ";
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists; table names come from wpdb, exclusion fragment is class-built SQL
-        return (array) $wpdb->get_results($query);
+        $batch_size = max(1, (int) $batch_size);
+        $last_post_id = 0;
+        $last_key = '';
+        $last_id = 0;
+
+        // Keysets do not shift when earlier rows are deleted or inserted.
+        // Rows inserted behind the cursor are intentionally left for the next scan.
+        do {
+            $cursor = '';
+            if ($last_post_id > 0) {
+                $cursor = $wpdb->prepare(
+                    ' AND (pm.post_id > %d OR (pm.post_id = %d AND (pm.meta_key > %s OR (pm.meta_key = %s AND pm.meta_id > %d))))',
+                    $last_post_id, $last_post_id, $last_key, $last_key, $last_id
+                );
+            }
+            $limit = $wpdb->prepare(' LIMIT %d', $batch_size);
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists; table names come from wpdb, exclusion fragment is class-built SQL
+            $rows = (array) $wpdb->get_results($query . $cursor . ' ORDER BY pm.post_id ASC, pm.meta_key ASC, pm.meta_id ASC' . $limit);
+            foreach ($rows as $row) {
+                $last_post_id = (int) $row->post_id;
+                $last_key = (string) ($row->meta_key ?? '');
+                $last_id = (int) ($row->meta_id ?? 0);
+                yield $row;
+            }
+            $has_more = count($rows) === $batch_size;
+            unset($rows);
+        } while ($has_more);
     }
 
     /**
      * AIOSEO source rows that could hold per-post schema, for published posts.
      *
-     * Returns an empty array when the AIOSEO table is absent (the plugin was
+     * Yields no rows when the AIOSEO table is absent (the plugin was
      * never installed), matching the previous detector behaviour.
      *
      * @param  bool $only_new Skip posts that already hold a MetaSync schema block.
-     * @return array<object> Rows with post_id, schema_type and schema_type_options.
+     * @param  int  $batch_size Maximum rows fetched per query.
+     * @return \Generator Rows in post/ID order.
      */
-    private function aioseo_schema_candidate_rows($only_new = false)
+    private function aioseo_schema_candidate_rows($only_new = false, $batch_size = self::SCHEMA_SCAN_BATCH_SIZE)
     {
         global $wpdb;
 
         $table = $wpdb->prefix . 'aioseo_posts';
         if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table))) !== $table) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
-            return [];
+            return;
         }
 
         // AIOSEO writes a row for every post it tracks, and the overwhelming
@@ -349,7 +405,7 @@ class Metasync_External_Importer
         // they are dropped here rather than being reported as "unsupported" —
         // counting them is what made the card claim hundreds of ready posts
         // that no import could ever produce.
-        $query = "SELECT post_id, schema_type, schema_type_options
+        $query = "SELECT id, post_id, schema_type, schema_type_options
             FROM {$table}
             WHERE schema_type IS NOT NULL
             AND schema_type != ''
@@ -358,10 +414,32 @@ class Metasync_External_Importer
             AND schema_type_options NOT IN ('', '{}', '[]', 'null')
             AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
             " . ($only_new ? $this->sql_exclude_posts_with_metasync_schema($table) : '') . "
-            ORDER BY post_id ASC";
+            ";
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists; table name comes from wpdb, exclusion fragment is class-built SQL
-        return (array) $wpdb->get_results($query);
+        $batch_size = max(1, (int) $batch_size);
+        $last_post_id = 0;
+        $last_id = 0;
+
+        // Keysets do not shift when earlier rows are deleted or inserted.
+        // Rows inserted behind the cursor are intentionally left for the next scan.
+        do {
+            $cursor = '';
+            if ($last_post_id > 0) {
+                $cursor = $last_id > 0
+                    ? $wpdb->prepare(' AND (post_id > %d OR (post_id = %d AND id > %d))', $last_post_id, $last_post_id, $last_id)
+                    : $wpdb->prepare(' AND post_id > %d', $last_post_id);
+            }
+            $limit = $wpdb->prepare(' LIMIT %d', $batch_size);
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists; table name comes from wpdb, exclusion fragment is class-built SQL
+            $rows = (array) $wpdb->get_results($query . $cursor . ' ORDER BY post_id ASC, id ASC' . $limit);
+            foreach ($rows as $row) {
+                $last_post_id = (int) $row->post_id;
+                $last_id = (int) ($row->id ?? 0);
+                yield $row;
+            }
+            $has_more = count($rows) === $batch_size;
+            unset($rows);
+        } while ($has_more);
     }
 
     /**
@@ -1641,73 +1719,65 @@ class Metasync_External_Importer
      */
     private function import_yoast_schema()
     {
-        $breakdown = $this->empty_schema_breakdown();
+        return $this->import_schema_rows('yoast', $this->yoast_schema_candidate_rows());
+    }
 
-        // post_id => [meta_key => row]
-        $rows_by_post = [];
-        foreach ($this->yoast_schema_candidate_rows() as $row) {
-            $rows_by_post[(int) $row->post_id][$row->meta_key] = $row;
+    /** Process one post, preserving provider-specific source precedence. */
+    private function import_yoast_schema_for_post($post_id, $rows, &$breakdown)
+    {
+        // A MetaSync schema that is already there outranks whatever the
+        // source plugin holds — the schema migration ran before (or an
+        // editor set it by hand) and overwriting it is not this tool's job.
+        $existing_schema = get_post_meta($post_id, 'metasync_schema_markup', true);
+        if ($this->post_has_metasync_schema($post_id)) {
+            $breakdown['already_imported']++;
+            return;
         }
 
-        foreach ($rows_by_post as $post_id => $rows) {
-            // A MetaSync schema that is already there outranks whatever the
-            // source plugin holds — the schema migration ran before (or an
-            // editor set it by hand) and overwriting it is not this tool's job.
-            $existing_schema = get_post_meta($post_id, 'metasync_schema_markup', true);
-            if ($this->post_has_metasync_schema($post_id)) {
-                $breakdown['already_imported']++;
-                continue;
-            }
+        $schema_row       = $rows['_yoast_wpseo_schema'] ?? null;
+        $article_type_row = $rows['_yoast_wpseo_schema_article_type'] ?? null;
 
-            $schema_row       = $rows['_yoast_wpseo_schema'] ?? null;
-            $article_type_row = $rows['_yoast_wpseo_schema_article_type'] ?? null;
+        // Full JSON payload first (free version, or the legacy root array).
+        if ($schema_row !== null
+            && $this->yoast_schema_source_is_supported($schema_row->meta_key, $schema_row->meta_value) !== null) {
+            $yoast_schema = json_decode((string) ($schema_row->meta_value ?? ''), true);
+            $metasync_schema = is_array($yoast_schema)
+                ? $this->convert_yoast_schema_to_metasync($yoast_schema, $post_id)
+                : ['types' => []];
 
-            // Full JSON payload first (free version, or the legacy root array).
-            if ($schema_row !== null
-                && $this->yoast_schema_source_is_supported($schema_row->meta_key, $schema_row->meta_value) !== null) {
-                $yoast_schema = json_decode((string) ($schema_row->meta_value ?? ''), true);
-                $metasync_schema = is_array($yoast_schema)
-                    ? $this->convert_yoast_schema_to_metasync($yoast_schema, $post_id)
-                    : ['types' => []];
-
-                if (!empty($metasync_schema['types'])) {
-                    update_post_meta($post_id, 'metasync_schema_markup', wp_slash(array_merge(is_array($existing_schema) ? $existing_schema : [], $metasync_schema)));
-                    $breakdown['imported']++;
-                    continue;
-                }
-            }
-
-            // Bare Premium article type: build a minimal article schema with
-            // placeholders, since Yoast Premium generates schema dynamically.
-            if ($article_type_row !== null
-                && $this->yoast_schema_source_is_supported($article_type_row->meta_key, $article_type_row->meta_value) !== null) {
-                $metasync_schema = [
-                    'enabled' => true,
-                    'types' => [
-                        [
-                            'type' => 'article',
-                            'fields' => [
-                                'title_override' => '{{post_title}}',
-                                'description_override' => '{{post_description}}',
-                                'image_override' => '{{featured_image}}',
-                                'organization_name' => '',
-                                'organization_logo' => ''
-                            ]
-                        ]
-                    ]
-                ];
-
+            if (!empty($metasync_schema['types'])) {
                 update_post_meta($post_id, 'metasync_schema_markup', wp_slash(array_merge(is_array($existing_schema) ? $existing_schema : [], $metasync_schema)));
                 $breakdown['imported']++;
-                continue;
+                return;
             }
-
-            $breakdown['unsupported']++;
         }
 
-        $breakdown['total_candidates'] = count($rows_by_post);
+        // Bare Premium article type: build a minimal article schema with
+        // placeholders, since Yoast Premium generates schema dynamically.
+        if ($article_type_row !== null
+            && $this->yoast_schema_source_is_supported($article_type_row->meta_key, $article_type_row->meta_value) !== null) {
+            $metasync_schema = [
+                'enabled' => true,
+                'types' => [
+                    [
+                        'type' => 'article',
+                        'fields' => [
+                            'title_override' => '{{post_title}}',
+                            'description_override' => '{{post_description}}',
+                            'image_override' => '{{featured_image}}',
+                            'organization_name' => '',
+                            'organization_logo' => ''
+                        ]
+                    ]
+                ]
+            ];
 
-        return $breakdown;
+            update_post_meta($post_id, 'metasync_schema_markup', wp_slash(array_merge(is_array($existing_schema) ? $existing_schema : [], $metasync_schema)));
+            $breakdown['imported']++;
+            return;
+        }
+
+        $breakdown['unsupported']++;
     }
 
     /**
@@ -1721,55 +1791,48 @@ class Metasync_External_Importer
      */
     private function import_rankmath_schema()
     {
-        $breakdown = $this->empty_schema_breakdown();
+        return $this->import_schema_rows('rankmath', $this->rankmath_schema_candidate_rows());
+    }
 
-        $rows_by_post = [];
-        foreach ($this->rankmath_schema_candidate_rows() as $row) {
-            $rows_by_post[(int) $row->post_id][] = $row;
+    /** Process one post, preserving provider-specific source precedence. */
+    private function import_rankmath_schema_for_post($post_id, $rows, &$breakdown)
+    {
+        $existing_schema = get_post_meta($post_id, 'metasync_schema_markup', true);
+        if ($this->post_has_metasync_schema($post_id)) {
+            $breakdown['already_imported']++;
+            return;
         }
 
-        foreach ($rows_by_post as $post_id => $rows) {
-            $existing_schema = get_post_meta($post_id, 'metasync_schema_markup', true);
-            if ($this->post_has_metasync_schema($post_id)) {
-                $breakdown['already_imported']++;
+        $imported = false;
+
+        foreach ($rows as $row) {
+            if ($this->rankmath_schema_source_is_supported($row->meta_key, $row->meta_value) === null) {
                 continue;
             }
 
-            $imported = false;
+            // Extract schema type from meta key (e.g., rank_math_schema_BlogPosting -> BlogPosting)
+            $schema_type = str_replace('rank_math_schema_', '', $row->meta_key);
 
-            foreach ($rows as $row) {
-                if ($this->rankmath_schema_source_is_supported($row->meta_key, $row->meta_value) === null) {
-                    continue;
-                }
-
-                // Extract schema type from meta key (e.g., rank_math_schema_BlogPosting -> BlogPosting)
-                $schema_type = str_replace('rank_math_schema_', '', $row->meta_key);
-
-                // Decode Rank Math schema
-                $rm_schema = maybe_unserialize($row->meta_value);
-                if (empty($rm_schema) || !is_array($rm_schema)) {
-                    continue;
-                }
-
-                // Convert Rank Math schema to Metasync format
-                $metasync_schema = $this->convert_rankmath_schema_to_metasync($rm_schema, $schema_type, $post_id);
-
-                if (!empty($metasync_schema['types'])) {
-                    update_post_meta($post_id, 'metasync_schema_markup', wp_slash(array_merge(is_array($existing_schema) ? $existing_schema : [], $metasync_schema)));
-                    $breakdown['imported']++;
-                    $imported = true;
-                    break; // One schema block per post.
-                }
+            // Decode Rank Math schema
+            $rm_schema = maybe_unserialize($row->meta_value);
+            if (empty($rm_schema) || !is_array($rm_schema)) {
+                continue;
             }
 
-            if (!$imported) {
-                $breakdown['unsupported']++;
+            // Convert Rank Math schema to Metasync format
+            $metasync_schema = $this->convert_rankmath_schema_to_metasync($rm_schema, $schema_type, $post_id);
+
+            if (!empty($metasync_schema['types'])) {
+                update_post_meta($post_id, 'metasync_schema_markup', wp_slash(array_merge(is_array($existing_schema) ? $existing_schema : [], $metasync_schema)));
+                $breakdown['imported']++;
+                $imported = true;
+                break; // One schema block per post.
             }
         }
 
-        $breakdown['total_candidates'] = count($rows_by_post);
-
-        return $breakdown;
+        if (!$imported) {
+            $breakdown['unsupported']++;
+        }
     }
 
     /**
@@ -1784,52 +1847,88 @@ class Metasync_External_Importer
      */
     private function import_aioseo_schema()
     {
+        return $this->import_schema_rows('aioseo', $this->aioseo_schema_candidate_rows());
+    }
+
+    /** Process one post, preserving provider-specific source precedence. */
+    private function import_aioseo_schema_for_post($post_id, $aioseo_data, &$breakdown)
+    {
+        $existing_schema = get_post_meta($post_id, 'metasync_schema_markup', true);
+        if ($this->post_has_metasync_schema($post_id)) {
+            $breakdown['already_imported']++;
+            return;
+        }
+
+        if ($this->aioseo_schema_source_is_supported($aioseo_data->schema_type, $aioseo_data->schema_type_options) === null) {
+            $breakdown['unsupported']++;
+            return;
+        }
+
+        // Decode AIOSEO schema options
+        $schema_options = json_decode((string)($aioseo_data->schema_type_options ?? ''), true);
+        if (!is_array($schema_options)) {
+            $schema_options = [];
+        }
+
+        // Convert AIOSEO schema to Metasync format
+        $metasync_schema = $this->convert_aioseo_schema_to_metasync(
+            $aioseo_data->schema_type,
+            $schema_options,
+            $post_id
+        );
+
+        if (!empty($metasync_schema['types'])) {
+            update_post_meta($post_id, 'metasync_schema_markup', wp_slash(array_merge(is_array($existing_schema) ? $existing_schema : [], $metasync_schema)));
+            $breakdown['imported']++;
+        } else {
+            $breakdown['unsupported']++;
+        }
+    }
+
+    /** Stream contiguous candidate rows, retaining only the current post. */
+    private function import_schema_rows($provider, $candidates)
+    {
         $breakdown = $this->empty_schema_breakdown();
-
-        // An absent AIOSEO table means there is nothing to import at all.
-        // Rows are keyed per post so the count matches check_schema_data(),
-        // which also counts distinct posts.
-        $rows_by_post = [];
-        foreach ($this->aioseo_schema_candidate_rows() as $aioseo_data) {
-            $rows_by_post[(int) $aioseo_data->post_id] = $aioseo_data;
-        }
-
-        foreach ($rows_by_post as $post_id => $aioseo_data) {
-            $existing_schema = get_post_meta($post_id, 'metasync_schema_markup', true);
-            if ($this->post_has_metasync_schema($post_id)) {
-                $breakdown['already_imported']++;
-                continue;
+        $post_id = 0;
+        $rows = [];
+        foreach ($candidates as $row) {
+            if ($post_id !== 0 && $post_id !== (int) $row->post_id) {
+                $this->import_schema_post($provider, $post_id, $rows, $breakdown);
+                $rows = [];
             }
-
-            if ($this->aioseo_schema_source_is_supported($aioseo_data->schema_type, $aioseo_data->schema_type_options) === null) {
-                $breakdown['unsupported']++;
-                continue;
-            }
-
-            // Decode AIOSEO schema options
-            $schema_options = json_decode((string)($aioseo_data->schema_type_options ?? ''), true);
-            if (!is_array($schema_options)) {
-                $schema_options = [];
-            }
-
-            // Convert AIOSEO schema to Metasync format
-            $metasync_schema = $this->convert_aioseo_schema_to_metasync(
-                $aioseo_data->schema_type,
-                $schema_options,
-                $post_id
-            );
-
-            if (!empty($metasync_schema['types'])) {
-                update_post_meta($post_id, 'metasync_schema_markup', wp_slash(array_merge(is_array($existing_schema) ? $existing_schema : [], $metasync_schema)));
-                $breakdown['imported']++;
+            $post_id = (int) $row->post_id;
+            if ($provider === 'yoast') {
+                $rows[$row->meta_key] = $row;
+            } elseif ($provider === 'aioseo') {
+                $rows = $row;
             } else {
-                $breakdown['unsupported']++;
+                $rows[] = $row;
             }
         }
-
-        $breakdown['total_candidates'] = count($rows_by_post);
-
+        if ($post_id !== 0) {
+            $this->import_schema_post($provider, $post_id, $rows, $breakdown);
+        }
         return $breakdown;
+    }
+
+    /** Process and release cached metadata for each candidate post, including skips. */
+    private function import_schema_post($provider, $post_id, $rows, &$breakdown)
+    {
+        $breakdown['total_candidates']++;
+        switch ($provider) {
+            case 'yoast':
+                $this->import_yoast_schema_for_post($post_id, $rows, $breakdown);
+                break;
+            case 'rankmath':
+                $this->import_rankmath_schema_for_post($post_id, $rows, $breakdown);
+                break;
+            case 'aioseo':
+                $this->import_aioseo_schema_for_post($post_id, $rows, $breakdown);
+                break;
+        }
+        if (function_exists('clean_post_cache')) {
+            clean_post_cache($post_id);
+        }
     }
 
     /**

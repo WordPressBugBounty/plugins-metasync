@@ -161,6 +161,14 @@ class Metasync_Sitemap_News
         $urlset->setAttribute('xmlns:news', 'http://www.google.com/schemas/sitemap-news/0.9');
         $xml->appendChild($urlset);
 
+        // Hoisted once: under headless every candidate loc must convert to the
+        // frontend domain or the entry is dropped. class_exists guards the
+        // upgrade window where the headless classes are not loadable; missing
+        // means "not headless".
+        $headless = class_exists('Metasync_Headless_Config') && Metasync_Headless_Config::is_active();
+        $offered_for_conversion = 0;
+        $kept_after_conversion = 0;
+
         foreach ($posts as $post) {
             // Posts marked noindex never belong in the news sitemap.
             if (isset($noindex_set[(int) $post->ID])) {
@@ -168,6 +176,15 @@ class Metasync_Sitemap_News
             }
 
             $permalink = get_permalink($post->ID);
+            $loc_url = $permalink;
+            if ($headless) {
+                $offered_for_conversion++;
+                $loc_url = Metasync_Headless_Url_Builder::from_wp_url($permalink, (string) $post->post_type);
+                if ($loc_url === '') {
+                    continue;
+                }
+                $kept_after_conversion++;
+            }
 
             // Skip excluded URLs
             if (!empty($excluded_urls) && isset($excluded_urls[$permalink])) {
@@ -176,7 +193,7 @@ class Metasync_Sitemap_News
 
             $url_element = $xml->createElement('url');
 
-            $loc = $xml->createElement('loc', esc_url($permalink));
+            $loc = $xml->createElement('loc', esc_url($loc_url));
             $url_element->appendChild($loc);
 
             $news = $xml->createElement('news:news');
@@ -215,6 +232,14 @@ class Metasync_Sitemap_News
 
             $url_element->appendChild($news);
             $urlset->appendChild($url_element);
+        }
+
+        // A headless run where every candidate loc was refused (plain
+        // permalinks, a mis-set domain) would replace the previous good news
+        // sitemap with an empty urlset — silently de-indexing Google News
+        // coverage. Refuse the generation instead; the stored document stays.
+        if ($headless && $offered_for_conversion > 0 && $kept_after_conversion === 0) {
+            return false;
         }
 
         // Release the object-cache accumulation (post objects, post-meta, and

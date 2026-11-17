@@ -1364,10 +1364,11 @@ class Metasync_Settings_Registration
                 
                 <!-- Description -->
                 <p class="description" style="margin-top: 10px;">
-                    <strong>How it works:</strong> 
-                    Select which user roles should be synced with Content Genius. 
-                    If <strong>"All Roles"</strong> is selected or none are selected, all users will be synced. 
+                    <strong>How it works:</strong>
+                    Select which user roles should be synced with Content Genius.
+                    If <strong>"All Roles"</strong> is selected or none are selected, all users will be synced.
                     Otherwise, only users with the selected roles will be included in the sync.
+                    A role with no users cannot be saved. If a saved role later loses its last user, the user sync pauses instead of sending other users, and the site stays connected.
                 </p>
                 <?php
             },
@@ -2965,6 +2966,58 @@ class Metasync_Settings_Registration
 
         return $normalize((array) $before) !== $normalize((array) $after);
     }
+
+    /**
+     * Roles in a Content Genius sync selection that have no users.
+     *
+     * "All Roles" and an empty selection sync everyone, so neither can be
+     * empty. A role that does not exist on the site also counts as empty: it
+     * can never match a user. The count function is injectable so the rule can
+     * be tested without a WordPress user table.
+     *
+     * @param array         $roles      Submitted role slugs.
+     * @param callable|null $user_count Returns the number of users in a role.
+     * @return array<int,string> Role slugs that have no users.
+     */
+    public static function content_genius_roles_without_users(array $roles, ?callable $user_count = null)
+    {
+        // A selection that includes "all" syncs every user regardless of the
+        // other entries, so it can never be an empty-role selection.
+        if (in_array('all', array_map('sanitize_key', $roles), true)) {
+            return array();
+        }
+
+        $roles = array_values(array_filter(array_map('sanitize_key', $roles), static function ($role) {
+            return $role !== '' && $role !== 'all';
+        }));
+        if ($roles === array()) {
+            return array();
+        }
+
+        if ($user_count === null) {
+            $user_count = static function ($role) {
+                if (!function_exists('get_users')) {
+                    return 1;
+                }
+                $count = get_users(array(
+                    'role' => $role,
+                    'number' => 1,
+                    'fields' => 'ID',
+                    'count_total' => false,
+                ));
+                return count($count);
+            };
+        }
+
+        $empty = array();
+        foreach ($roles as $role) {
+            if ((int) $user_count($role) < 1) {
+                $empty[] = $role;
+            }
+        }
+        return $empty;
+    }
+
     /**
      * AJAX handler for saving general/whitelabel/advanced settings.
      *
@@ -3235,7 +3288,16 @@ class Metasync_Settings_Registration
 
         if ($general_tab_submitted) {
             if (isset($_POST['metasync_options']['general']['content_genius_sync_roles']) && is_array($_POST['metasync_options']['general']['content_genius_sync_roles'])) {
-                $metasync_options['general']['content_genius_sync_roles'] = array_map('sanitize_text_field', wp_unslash($_POST['metasync_options']['general']['content_genius_sync_roles']));
+                $submitted_roles = array_map('sanitize_text_field', wp_unslash($_POST['metasync_options']['general']['content_genius_sync_roles']));
+                // A role with no users cannot be synced, and letting it save
+                // would only surface later as a failed sync. Reject it here,
+                // where the owner can see why and pick a role that has users.
+                $empty_roles = self::content_genius_roles_without_users($submitted_roles);
+                if ($empty_roles !== array()) {
+                    $validation_errors[] = 'Content Genius user sync was not saved. These roles have no users: ' . implode(', ', $empty_roles) . '. Pick roles that have users, or choose All Roles.';
+                } else {
+                    $metasync_options['general']['content_genius_sync_roles'] = $submitted_roles;
+                }
             } else {
                 $metasync_options['general']['content_genius_sync_roles'] = array();
             }

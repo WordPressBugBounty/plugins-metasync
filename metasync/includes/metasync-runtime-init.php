@@ -83,6 +83,20 @@ function metasync_init_analytics_consent_notice() {
 add_action('init', 'metasync_init_analytics_consent_notice');
 
 /**
+ * Initialize the MCP client-key feature notice.
+ * Shows existing administrators the new AI Agents page once per user.
+ */
+function metasync_init_mcp_key_notice() {
+    if (metasync_is_non_metasync_admin_ajax()) {
+        return;
+    }
+    if (is_admin()) {
+        Metasync_MCP_Key_Notice::get_instance();
+    }
+}
+add_action('init', 'metasync_init_mcp_key_notice');
+
+/**
  * Initialize Host Blocking Check
  * Owns the shared GET/POST reachability probe, its post-activation + weekly crons,
  * and the warning notice. Initialised unconditionally (not gated on is_admin) because

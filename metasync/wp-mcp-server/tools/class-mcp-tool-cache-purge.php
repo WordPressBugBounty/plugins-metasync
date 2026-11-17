@@ -56,13 +56,14 @@ class MCP_Tool_Cache_Purge_All extends MCP_Tool_Base {
 
         try {
             $results = Metasync_Cache_Purge::get_instance()->clear_all_caches($source);
-            Metasync_Edge_Cache_Purge::purge([home_url('/')]);
+            $edge_purge = Metasync_Edge_Cache_Purge::purge([home_url('/')]);
 
             return $this->success([
+                'edge_purge' => is_array($edge_purge) ? $edge_purge : ['status' => 'unknown', 'eviction_confirmed' => false],
                 'cleared'    => isset($results['cleared']) ? $results['cleared'] : [],
                 'failed'     => isset($results['failed']) ? $results['failed'] : [],
                 'not_active' => isset($results['not_active']) ? $results['not_active'] : [],
-            ], 'All WordPress and edge caches purged.');
+            ], 'WordPress cache purge completed; edge invalidation: ' . (is_array($edge_purge) ? $edge_purge['status'] : 'unconfirmed') . '. Edge eviction is not confirmed.');
         } catch (Exception $e) {
             $this->error('Failed to purge caches: ' . $e->getMessage());
         }
@@ -107,12 +108,13 @@ class MCP_Tool_Cache_Purge_URL extends MCP_Tool_Base {
 
         try {
             $page_cleared = Metasync_Cache_Purge::get_instance()->clear_url_cache($url);
-            Metasync_Edge_Cache_Purge::purge([$url]);
+            $edge_purge = Metasync_Edge_Cache_Purge::purge([$url]);
 
             return $this->success([
+                'edge_purge' => is_array($edge_purge) ? $edge_purge : ['status' => 'unknown', 'eviction_confirmed' => false],
                 'url'          => $url,
                 'page_cleared' => (bool) $page_cleared
-            ], 'Cache cleared for URL.');
+            ], 'Page cache purge completed; edge invalidation: ' . (is_array($edge_purge) ? $edge_purge['status'] : 'unconfirmed') . '. Edge eviction is not confirmed.');
         } catch (Exception $e) {
             $this->error('Failed to purge cache for URL: ' . $e->getMessage());
         }

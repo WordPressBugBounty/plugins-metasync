@@ -467,7 +467,11 @@ function metasync_handle_otto_crawl_url_job($route = '', $retry_count = 0) {
         # first attempt the batch stopped waiting for) purges the edge itself.
         $status = Metasync_Otto_Job_Status::get($route);
         if ($retry_count > 0 || !empty($status['edge_pending'])) {
-            Metasync_Edge_Cache_Purge::purge(array($route));
+            $edge_purge = Metasync_Edge_Cache_Purge::purge(array($route));
+            if (is_array($edge_purge) && in_array($edge_purge['status'] ?? '', array('failed', 'partial'), true)) {
+                metasync_record_failed_action('metasync_process_otto_batch_cache_job');
+                error_log('MetaSync OTTO: edge invalidation reported terminal failures; see edge purge diagnostics.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- bounded diagnostic, no URLs or credentials
+            }
         }
 
         Metasync_Otto_Job_Status::record($route, Metasync_Otto_Job_Status::STATE_COMPLETED, 'job', $retry_count, $outcome);
@@ -578,7 +582,11 @@ function metasync_handle_otto_batch_cache_job($routes = array(), $wait_count = 0
     try {
         # Purge edge CDN caches (Cloudflare, Fastly, Akamai, Sucuri, Sevalla, etc.)
         # Tag-based providers purge only the affected posts; full-flush providers fire once per batch.
-        Metasync_Edge_Cache_Purge::purge($ready);
+        $edge_purge = Metasync_Edge_Cache_Purge::purge($ready);
+        if (is_array($edge_purge) && in_array($edge_purge['status'] ?? '', array('failed', 'partial'), true)) {
+            metasync_record_failed_action('metasync_process_otto_batch_cache_job');
+            error_log('MetaSync OTTO: edge invalidation reported terminal failures; see edge purge diagnostics.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- bounded diagnostic, no URLs or credentials
+        }
     } catch (Exception $e) {
         metasync_record_failed_action('metasync_process_otto_batch_cache_job');
         error_log('MetaSync OTTO: batch cache job failed for ' . count($ready) . ' URLs: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
@@ -949,6 +957,25 @@ function metasync_start_otto(){
         return;
     }
 
+    # Skip OTTO on 404s.
+    #
+    # OTTO suggestions are keyed to real, crawled pages. Asking the API about a URL
+    # that returns 404 spends a full API_TIMEOUT of PHP-FPM worker time on a
+    # guaranteed-empty answer. Not theoretical: in one production sample, 21 of 54
+    # crawler requests were 404s on URLs that never existed on the site, each
+    # costing ~2s of a worker.
+    #
+    # Deliberately placed AFTER bot detection so push_crawl_log_to_sa() still
+    # reports the crawl to SearchAtlas — that telemetry is how the crawler side
+    # can learn to stop requesting these URLs. Return before render throttling
+    # as well, so nonexistent URLs cannot create options-backed render claims.
+    #
+    # Filterable because "should a 404 page get OTTO treatment" is arguably a site
+    # decision, even though there is no known case where it should.
+    if (is_404() && apply_filters('metasync_otto_skip_on_404', true)) {
+        return;
+    }
+
     # Throttle OTTO rendering for bots that are not exempt: at most one render
     # per URL+bot every 5 minutes. Humans, search engines (Googlebot, Bingbot,
     # Yahoo's Slurp, Sogou, Exabot, Applebot, ...), host cache warmers and
@@ -977,7 +1004,18 @@ function metasync_start_otto(){
         // and cannot flood wp_options with unique transient rows.
         $bot_name            = substr( strtolower( $detection['bot_name'] ?? 'unknown' ), 0, 32 );
         $render_throttle_key = 'metasync_otto_rendered_' . md5( $normalized_url . '|' . $bot_name );
-        if ( get_transient( $render_throttle_key ) ) {
+        if ( is_404() ) {
+            // Even when 404 rendering is explicitly enabled, never use options-backed
+            // throttles. Core's nonpersistent object cache deduplicates only within
+            // this request; a persistent cache also deduplicates across requests.
+            $render_throttled = ! wp_cache_add( $render_throttle_key, 1, 'metasync_otto_404_render', 5 * MINUTE_IN_SECONDS );
+        } else {
+            $render_throttled = get_transient( $render_throttle_key );
+            if ( ! $render_throttled ) {
+                set_transient( $render_throttle_key, 1, 5 * MINUTE_IN_SECONDS );
+            }
+        }
+        if ( $render_throttled ) {
             // Prevent page caches (WP Rocket, W3TC, etc.) from saving the
             // un-OTTO'd response and serving it to subsequent human visitors.
             if ( ! defined( 'DONOTCACHEPAGE' ) ) {
@@ -985,26 +1023,6 @@ function metasync_start_otto(){
             }
             return;
         }
-        set_transient( $render_throttle_key, 1, 5 * MINUTE_IN_SECONDS );
-    }
-
-    # Skip OTTO on 404s.
-    #
-    # OTTO suggestions are keyed to real, crawled pages. Asking the API about a URL
-    # that returns 404 spends a full API_TIMEOUT of PHP-FPM worker time on a
-    # guaranteed-empty answer. Not theoretical: in one production sample, 21 of 54
-    # crawler requests were 404s on URLs that never existed on the site, each
-    # costing ~2s of a worker.
-    #
-    # Deliberately placed AFTER bot detection so push_crawl_log_to_sa() still
-    # reports the crawl to SearchAtlas — that telemetry is how the crawler side
-    # can learn to stop requesting these URLs. Only the expensive suggestions
-    # lookup is skipped.
-    #
-    # Filterable because "should a 404 page get OTTO treatment" is arguably a site
-    # decision, even though there is no known case where it should.
-    if (is_404() && apply_filters('metasync_otto_skip_on_404', true)) {
-        return;
     }
 
     # Optionally skip OTTO processing for bot traffic (when the setting is enabled)
@@ -1123,23 +1141,28 @@ function metasync_start_otto(){
        # $_SERVER['REQUEST_URI'] = remove_query_arg('is_otto_page_fetch', $_SERVER['REQUEST_URI']);
        $block_title = !empty($_GET['otto_block_title']) && $_GET['otto_block_title'] === '1'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only loopback marker, request-scoped filters only
         $block_description = !empty($_GET['otto_block_desc']) && $_GET['otto_block_desc'] === '1'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only loopback marker, request-scoped filters only
-        
+        # Which description tags OTTO has (name/og/twitter). Missing = block all (older callers).
+        $block_description_tags = isset($_GET['otto_block_desc_tags']) // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only loopback marker, request-scoped filters only
+            ? metasync_otto_decode_description_tags(sanitize_text_field(wp_unslash($_GET['otto_block_desc_tags']))) // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only loopback marker, request-scoped filters only
+            : [];
+
         # Block SEO plugins conditionally based on what Otto has
         if ($block_title || $block_description) {
-            metasync_otto_block_seo_plugins($block_title, $block_description);
+            metasync_otto_block_seo_plugins($block_title, $block_description, $block_description_tags);
         }
-        
+
         # Remove ALL Otto parameters from REQUEST_URI to prevent them from appearing in pagination, etc.
         $request_uri_raw = sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? ''));
         $_SERVER['REQUEST_URI'] = remove_query_arg(
-            ['is_otto_page_fetch', 'otto_block_title', 'otto_block_desc'],
+            ['is_otto_page_fetch', 'otto_block_title', 'otto_block_desc', 'otto_block_desc_tags'],
             $request_uri_raw
         );
-        
+
         # Also remove from $_GET to prevent WordPress from using them
         unset($_GET['is_otto_page_fetch']);
         unset($_GET['otto_block_title']);
         unset($_GET['otto_block_desc']);
+        unset($_GET['otto_block_desc_tags']);
         return;
     }
 
@@ -1595,6 +1618,79 @@ function metasync_otto_social_output_enabled() {
 }
 
 /**
+ * Work out which SEO-plugin description tags OTTO replaces on this request.
+ *
+ * An empty tag list means the caller could not tell which tags OTTO has, so
+ * every description tag is blocked (legacy behaviour). Social tags are only
+ * blocked while MetaSync still writes its own social tags.
+ *
+ * @param bool  $block_description Whether OTTO provides any description tag.
+ * @param array $description_tags  Granular OTTO tag selectors.
+ * @return array{standard: bool, og: bool, twitter: bool}
+ */
+function metasync_otto_description_block_targets($block_description, $description_tags = []) {
+    if (!$block_description) {
+        return ['standard' => false, 'og' => false, 'twitter' => false];
+    }
+
+    $tags   = $description_tags;
+    $all    = empty($tags);
+    $social = metasync_otto_social_output_enabled();
+
+    return [
+        'standard' => $all || in_array('meta[name=description]', $tags, true),
+        'og'       => $social && ($all || in_array('meta[property=og:description]', $tags, true)),
+        'twitter'  => $social && ($all || in_array('meta[name=twitter:description]', $tags, true)),
+    ];
+}
+
+/**
+ * Map the description-tag selectors to the short codes carried on the internal
+ * OTTO fetch URL (and back). Unknown values are dropped.
+ *
+ * @param array $tags Selectors such as 'meta[name=description]'.
+ * @return string Comma separated codes, e.g. "name,og".
+ */
+function metasync_otto_encode_description_tags($tags) {
+    $map   = metasync_otto_description_tag_codes();
+    $codes = [];
+    foreach ((array) $tags as $tag) {
+        $code = array_search($tag, $map, true);
+        if ($code !== false) {
+            $codes[] = $code;
+        }
+    }
+    return implode(',', array_unique($codes));
+}
+
+/**
+ * @param string $value Comma separated codes from the internal fetch URL.
+ * @return array Description tag selectors.
+ */
+function metasync_otto_decode_description_tags($value) {
+    $map  = metasync_otto_description_tag_codes();
+    $tags = [];
+    foreach (explode(',', (string) $value) as $code) {
+        $code = trim($code);
+        if (isset($map[$code])) {
+            $tags[] = $map[$code];
+        }
+    }
+    return array_values(array_unique($tags));
+}
+
+/**
+ * @return array<string,string> URL code => description tag selector.
+ */
+function metasync_otto_description_tag_codes() {
+    return [
+        'name'    => 'meta[name=description]',
+        'og'      => 'meta[property=og:description]',
+        'twitter' => 'meta[name=twitter:description]',
+    ];
+}
+
+/**
  * Block SEO plugins conditionally based on what Otto is providing
  * Only blocks title if Otto has title, only blocks description if Otto has description
  * This prevents duplicate SEO tags while allowing fallback to SEO plugins when Otto has no data.
@@ -1620,33 +1716,37 @@ function metasync_otto_block_seo_plugins($block_title = false, $block_descriptio
         # Instead, let Yoast render its own title; OTTO's replace_title() will overwrite
         # it in the final HTML buffer. deduplicate_title_tags() cleans up any duplicates.
 
-        # Block description only if Otto has description
-        if ($block_description) {
+        # Only block the description tags OTTO actually provides. OTTO data with
+        # just an og:description must not remove Yoast's plain meta description,
+        # otherwise the page ends up with no meta description at all.
+        $desc_blocks = metasync_otto_description_block_targets($block_description, $description_tags);
+
+        if ($desc_blocks['standard']) {
             add_filter('wpseo_metadesc', '__return_false', 999);
             add_filter('wpseo_meta_description', '__return_false', 999);
             add_filter('wpseo_metakeywords', '__return_false', 999);
         }
 
         # Block Yoast's modern presenters — description only, never title
-        add_filter('wpseo_frontend_presenters', function($presenters) use ($block_description) {
+        add_filter('wpseo_frontend_presenters', function($presenters) use ($desc_blocks) {
             if (!is_array($presenters)) return $presenters;
 
             $presenters_to_remove = [];
 
-
-            # Remove description presenters only when OTTO has a description
-            if ($block_description) {
-                # The plain meta description belongs to the SEO title/description
-                # feature, which has its own setting.
+            # The plain meta description belongs to the SEO title/description
+            # feature, which has its own setting.
+            if ($desc_blocks['standard']) {
                 $presenters_to_remove[] = 'Yoast\WP\SEO\Presenters\Meta_Description_Presenter';
+            }
 
-                # The OG/Twitter descriptions are social tags. With that feature
-                # switched off MetaSync writes none of its own, so Yoast's must be
-                # left alone rather than removed with nothing to replace them.
-                if (metasync_otto_social_output_enabled()) {
-                    $presenters_to_remove[] = 'Yoast\WP\SEO\Presenters\Open_Graph\Description_Presenter';
-                    $presenters_to_remove[] = 'Yoast\WP\SEO\Presenters\Twitter\Description_Presenter';
-                }
+            # The OG/Twitter descriptions are social tags. With that feature
+            # switched off MetaSync writes none of its own, so Yoast's are left
+            # alone rather than removed with nothing to replace them.
+            if ($desc_blocks['og']) {
+                $presenters_to_remove[] = 'Yoast\WP\SEO\Presenters\Open_Graph\Description_Presenter';
+            }
+            if ($desc_blocks['twitter']) {
+                $presenters_to_remove[] = 'Yoast\WP\SEO\Presenters\Twitter\Description_Presenter';
             }
 
             foreach ($presenters as $key => $presenter) {
@@ -1672,9 +1772,21 @@ function metasync_otto_block_seo_plugins($block_title = false, $block_descriptio
         # document title. Let Rank Math render its own title/og/twitter tags;
         # OTTO's replace_title() and the dedup/precedence pass clean up duplicates.
 
-        if ($block_description) {
+        # Same granular rule as Yoast: keep Rank Math's plain meta description
+        # unless OTTO provides that exact tag.
+        $desc_blocks = metasync_otto_description_block_targets($block_description, $description_tags);
+
+        if ($desc_blocks['standard']) {
+            # This also empties Rank Math's og/twitter description fallback,
+            # which is the pre-existing behaviour when OTTO owns the description.
             add_filter('rank_math/frontend/description', '__return_false', 999);
             add_filter('rank_math/frontend/show_keywords', '__return_false', 999);
+        }
+        if ($desc_blocks['og']) {
+            add_filter('rank_math/opengraph/facebook/og_description', '__return_empty_string', 999);
+        }
+        if ($desc_blocks['twitter']) {
+            add_filter('rank_math/opengraph/twitter/twitter_description', '__return_empty_string', 999);
         }
     }
 
@@ -1701,12 +1813,10 @@ function metasync_otto_block_seo_plugins($block_title = false, $block_descriptio
 
         if ($block_description) {
             # Use granular tag list when available to only block what OTTO provides
-            $tags = !empty($description_tags) ? $description_tags : [];
-            $block_standard  = empty($tags) || in_array('meta[name=description]', $tags);
-            # Social tags only get blocked while MetaSync is still emitting them.
-            $social_enabled  = metasync_otto_social_output_enabled();
-            $block_og_desc   = $social_enabled && (empty($tags) || in_array('meta[property=og:description]', $tags));
-            $block_tw_desc   = $social_enabled && (empty($tags) || in_array('meta[name=twitter:description]', $tags));
+            $desc_blocks    = metasync_otto_description_block_targets($block_description, $description_tags);
+            $block_standard = $desc_blocks['standard'];
+            $block_og_desc  = $desc_blocks['og'];
+            $block_tw_desc  = $desc_blocks['twitter'];
 
             if ($block_standard) {
                 add_filter('aioseo_description', '__return_empty_string', 999);

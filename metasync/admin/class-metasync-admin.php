@@ -336,6 +336,10 @@ class Metasync_Admin
         add_action('wp_ajax_metasync_clear_sync_log',      array($this, 'ajax_clear_sync_log'));
         add_action('wp_ajax_metasync_rollback_mcp_change', array($this, 'ajax_rollback_mcp_change'));
 
+        # Add AJAX handlers for MCP client keys (AI Agents page)
+        add_action('wp_ajax_metasync_create_mcp_key', array($this, 'ajax_create_mcp_key'));
+        add_action('wp_ajax_metasync_revoke_mcp_key', array($this, 'ajax_revoke_mcp_key'));
+
         # Add AJAX handler for external data import
         add_action('wp_ajax_metasync_import_external_data', array($this, 'ajax_import_external_data'));
 
@@ -1049,6 +1053,41 @@ class Metasync_Admin
                 array('jquery'),
                 $this->version,
                 true
+            );
+        }
+
+        // AI Agents (MCP) page scripts (key create/revoke, token reveal)
+        if ($current_page === self::$page_slug . '-mcp-keys') {
+            // Version by file mtime, not the plugin version: this page ships
+            // fixes between releases and a static ?ver= would serve browsers
+            // a stale script with the old behaviour after an update.
+            $mcp_css_mtime = (string) filemtime(plugin_dir_path(__FILE__) . 'css/metasync-mcp-keys.css');
+            $mcp_js_mtime  = (string) filemtime(plugin_dir_path(__FILE__) . 'js/metasync-mcp-keys.js');
+
+            wp_enqueue_style(
+                $this->plugin_name . '-mcp-keys',
+                plugin_dir_url(__FILE__) . 'css/metasync-mcp-keys.css',
+                array(),
+                $mcp_css_mtime
+            );
+            wp_enqueue_script(
+                $this->plugin_name . '-mcp-keys',
+                plugin_dir_url(__FILE__) . 'js/metasync-mcp-keys.js',
+                array('jquery'),
+                $mcp_js_mtime,
+                true
+            );
+            wp_localize_script(
+                $this->plugin_name . '-mcp-keys',
+                'metasyncMcpKeys',
+                array(
+                    'nonce'       => wp_create_nonce('metasync_mcp_keys'),
+                    'mcp_url'     => esc_url_raw(rest_url('metasync/v1/mcp')),
+                    // White-label aware and never empty: company mode uses the
+                    // company name alone so a rebranded customer's client
+                    // config never names the original product.
+                    'server_name' => Metasync::get_mcp_server_slug(),
+                )
             );
         }
 
@@ -3716,6 +3755,14 @@ class Metasync_Admin
     }
 
     /**
+     * AI Agents (MCP) page callback
+     */
+    public function create_admin_mcp_keys_page()
+    {
+        Metasync_Admin_Pages::get_instance($this)->create_admin_mcp_keys_page();
+    }
+
+    /**
      * SEO Health dashboard page callback
      */
     public function create_admin_seo_health_page()
@@ -4188,7 +4235,7 @@ class Metasync_Admin
                             <div class="sync-log-item">
                                 <div class="sync-log-icon">
                                     <div class="sync-icon-circle">
-                                        <span class="sync-icon"><?php echo ($record->source === 'MCP Client') ? '<span class="dashicons dashicons-admin-users" style="font-size:16px;width:16px;height:16px;"></span>' : '<span class="dashicons dashicons-media-default" style="font-size:16px;width:16px;height:16px;"></span>'; ?></span>
+                                        <span class="sync-icon"><?php echo Metasync_MCP_Sync_Logger::is_mcp_source($record->source) ? '<span class="dashicons dashicons-admin-users" style="font-size:16px;width:16px;height:16px;"></span>' : '<span class="dashicons dashicons-media-default" style="font-size:16px;width:16px;height:16px;"></span>'; ?></span>
                                     </div>
                                 </div>
 
@@ -4219,7 +4266,7 @@ class Metasync_Admin
                                         <span class="dashicons <?php echo esc_attr($b_icon); ?>" style="font-size:14px;width:14px;height:14px;line-height:14px;"></span>
                                         <?php echo esc_html($b_label); ?>
                                     </span>
-                                    <?php if ($record->source === 'MCP Client'): ?>
+                                    <?php if (Metasync_MCP_Sync_Logger::is_mcp_source($record->source)): ?>
                                         <button type="button"
                                                 class="metasync-rollback-btn"
                                                 data-id="<?php echo esc_attr($record->id); ?>"
@@ -4405,6 +4452,81 @@ class Metasync_Admin
         } else {
             wp_send_json_error(['message' => $result['message']]);
         }
+    }
+
+    /**
+     * Capability gate shared by the MCP client key AJAX handlers.
+     */
+    private function user_can_manage_mcp_keys()
+    {
+        require_once plugin_dir_path(dirname(__FILE__)) . 'wp-mcp-server/class-metasync-mcp-keys.php';
+
+        return current_user_can('manage_options')
+            && Metasync::current_user_has_plugin_access()
+            && Metasync_Access_Control::user_can_access('hide_mcp');
+    }
+
+    /**
+     * AJAX: Create an MCP client key. The plaintext token is returned
+     * exactly once and never stored.
+     */
+    public function ajax_create_mcp_key()
+    {
+        check_ajax_referer('metasync_mcp_keys', 'nonce');
+
+        if (!$this->user_can_manage_mcp_keys()) {
+            wp_send_json_error(['message' => 'Insufficient permissions.'], 403);
+        }
+
+        require_once plugin_dir_path(dirname(__FILE__)) . 'wp-mcp-server/class-metasync-mcp-keys.php';
+
+        $name   = isset($_POST['name']) ? sanitize_text_field(wp_unslash($_POST['name'])) : '';
+        $access = isset($_POST['access']) ? sanitize_key(wp_unslash($_POST['access'])) : Metasync_MCP_Keys::ACCESS_READ;
+        $expiry = isset($_POST['expiry']) ? sanitize_key(wp_unslash($_POST['expiry'])) : '90';
+        $custom_days = isset($_POST['expiry_days']) && is_string($_POST['expiry_days'])
+            ? wp_unslash($_POST['expiry_days'])
+            : null;
+
+        $created = Metasync_MCP_Keys::create_key($name, $access, $expiry, get_current_user_id(), $custom_days);
+
+        if (is_wp_error($created)) {
+            $status = is_array($created->get_error_data()) && isset($created->get_error_data()['status'])
+                ? $created->get_error_data()['status']
+                : 400;
+            wp_send_json_error(['message' => $created->get_error_message()], $status);
+        }
+
+        wp_send_json_success([
+            'id'      => $created['id'],
+            'token'   => $created['token'],
+            'name'    => $name,
+            'mask'    => Metasync_MCP_Keys::key_mask((object) ['key_last4' => substr($created['token'], -4)]),
+        ]);
+    }
+
+    /**
+     * AJAX: Revoke an MCP client key immediately.
+     */
+    public function ajax_revoke_mcp_key()
+    {
+        check_ajax_referer('metasync_mcp_keys', 'nonce');
+
+        if (!$this->user_can_manage_mcp_keys()) {
+            wp_send_json_error(['message' => 'Insufficient permissions.'], 403);
+        }
+
+        require_once plugin_dir_path(dirname(__FILE__)) . 'wp-mcp-server/class-metasync-mcp-keys.php';
+
+        $id = isset($_POST['key_id']) ? absint($_POST['key_id']) : 0;
+        if (!$id) {
+            wp_send_json_error(['message' => 'Invalid key ID.']);
+        }
+
+        if (!Metasync_MCP_Keys::revoke_key($id)) {
+            wp_send_json_error(['message' => 'Could not revoke the key.'], 500);
+        }
+
+        wp_send_json_success(['message' => 'Key revoked.']);
     }
 
     /**

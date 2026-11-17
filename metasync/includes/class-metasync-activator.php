@@ -92,6 +92,7 @@ class Metasync_Activator
 		'metasync_process_seo_job',
 		'metasync_process_otto_crawl_url_job',
 		'metasync_process_otto_batch_cache_job',
+		'metasync_edge_cache_purge_drainer',
 		'metasync_host_blocking_check',
 		'metasync_host_blocking_weekly_check',
 	];
@@ -681,7 +682,7 @@ class Metasync_Activator
 			),
 			'white_label_plugin_description' => array(
 				'label' => 'Plugin Description',
-				'default' => 'Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.',
+				'default' => 'AI-powered SEO & GEO for WordPress: OTTO auto-optimizes meta, schema & content, and helps you rank on Google and in AI search.',
 				'url' => false,
 			),
 			'white_label_plugin_author' => array(
@@ -756,7 +757,7 @@ class Metasync_Activator
 			),
 			'white_label_plugin_description'  => array(
 				'header'  => 'Description',
-				'default' => 'Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.',
+				'default' => 'AI-powered SEO & GEO for WordPress: OTTO auto-optimizes meta, schema & content, and helps you rank on Google and in AI search.',
 			),
 			'white_label_plugin_author'       => array(
 				'header'  => 'Author',

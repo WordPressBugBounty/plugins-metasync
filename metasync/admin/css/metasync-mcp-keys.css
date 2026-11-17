@@ -1,0 +1,1191 @@
+/**
+ * AI Agents (MCP) page: per-client MCP keys.
+ *
+ * Every colour is derived from the --dashboard-* tokens, so the white-label
+ * palette and the light/dark theme switch both carry through. Text tints
+ * are mixed with --dashboard-text-primary, which flips between themes, so a
+ * single rule stays readable on dark and light cards alike.
+ *
+ * Callout tones:
+ *   caution - security-critical guidance (amber, not an error)
+ *   info    - neutral context
+ *   danger  - real request errors only
+ */
+
+.metasync-dashboard-wrap .metasync-mcp-keys-wrap {
+    --mcp-caution: var(--dashboard-warning);
+    --mcp-caution-ink: color-mix(in srgb, var(--dashboard-warning) 55%, var(--dashboard-text-primary));
+    --mcp-info: var(--dashboard-accent);
+    --mcp-info-ink: color-mix(in srgb, var(--dashboard-accent) 62%, var(--dashboard-text-primary));
+    --mcp-success: var(--dashboard-success);
+    --mcp-success-ink: color-mix(in srgb, var(--dashboard-success) 58%, var(--dashboard-text-primary));
+    --mcp-danger: var(--dashboard-error);
+    --mcp-danger-ink: color-mix(in srgb, var(--dashboard-error) 62%, var(--dashboard-text-primary));
+    --mcp-sunken: color-mix(in srgb, var(--dashboard-text-primary) 4%, var(--dashboard-card-bg));
+    --mcp-code-bg: color-mix(in srgb, var(--dashboard-text-primary) 7%, var(--dashboard-card-bg));
+    --mcp-radius: 10px;
+    max-width: 1200px;
+    /* The page sits beside the plugin's own side nav, so the viewport width
+       says little about the space available. Layout switches below key off
+       this container's width instead. */
+    container-type: inline-size;
+    container-name: mcp-keys;
+}
+
+/* ── Card headers ─────────────────────────────────────────────────────── */
+
+/* The title sits inside a wrapper: the dashboard hides any card > h2 that
+   is not the card's first child. */
+.metasync-dashboard-wrap .metasync-mcp-card-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 22px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--dashboard-border);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-card-head h2 {
+    font-size: 1.25rem;
+    margin: 2px 0 4px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-card-icon {
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    font-size: 20px;
+    line-height: 40px;
+    text-align: center;
+    color: var(--mcp-info-ink);
+    background: color-mix(in srgb, var(--dashboard-accent) 14%, var(--dashboard-card-bg));
+}
+
+.metasync-dashboard-wrap .metasync-mcp-card-icon--success {
+    color: var(--mcp-success-ink);
+    background: color-mix(in srgb, var(--dashboard-success) 16%, var(--dashboard-card-bg));
+}
+
+.metasync-dashboard-wrap .metasync-mcp-lead {
+    margin: 0;
+    color: var(--dashboard-text-secondary);
+    font-size: 14px;
+    line-height: 1.55;
+    max-width: 72ch;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-help {
+    margin: 0 0 8px;
+    color: var(--dashboard-text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-label {
+    display: block;
+    margin: 0 0 4px;
+    padding: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 13px;
+}
+
+/* ── Intro: steps and endpoint ────────────────────────────────────────── */
+
+.metasync-dashboard-wrap .metasync-mcp-steps {
+    list-style: none;
+    margin: 0 0 24px;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    counter-reset: none;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-steps li {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin: 0;
+    padding: 16px 18px;
+    background: var(--mcp-sunken);
+    border: 1px solid var(--dashboard-border);
+    border-radius: var(--mcp-radius);
+    color: var(--dashboard-text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-steps strong {
+    display: block;
+    margin-bottom: 2px;
+    font-size: 14px;
+    color: var(--dashboard-text-primary);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-step-num {
+    flex: 0 0 auto;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    color: #ffffff;
+    background: var(--dashboard-gradient-primary);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-endpoint {
+    padding: 16px 18px 18px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: var(--mcp-radius);
+    background: var(--mcp-sunken);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-endpoint-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-endpoint-head .metasync-mcp-label {
+    margin: 0;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-endpoint .metasync-mcp-help {
+    margin-bottom: 12px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-copy-field {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    margin: 0;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-copy-field input[type="text"] {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-copy-field .button {
+    flex: 0 0 auto;
+    justify-content: center;
+    white-space: nowrap;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-intro .metasync-mcp-callout {
+    margin-top: 16px;
+}
+
+/* ── Body layout ──────────────────────────────────────────────────────── */
+
+/* Single column: the create form and the setup guide each get the full
+   card width. The earlier side-by-side grid crowded both cards. */
+.metasync-dashboard-wrap .metasync-mcp-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+    margin-bottom: 24px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-grid > .dashboard-card {
+    margin-bottom: 0;
+}
+
+/* Wide container: the form and the safe-setup guide sit side by side, so the
+   form is not left floating in a full-width card. */
+@container mcp-keys (min-width: 1040px) {
+    .metasync-dashboard-wrap .metasync-mcp-grid {
+        grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+        align-items: stretch;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-guide .metasync-mcp-checklist {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* A full-width card stretches short inputs into long lines; keep the
+   form in a comfortable reading width inside the full-width card. */
+.metasync-dashboard-wrap .metasync-mcp-create .metasync-mcp-key-form {
+    max-width: 640px;
+}
+
+/* ── Create form ──────────────────────────────────────────────────────── */
+
+.metasync-dashboard-wrap .metasync-mcp-field {
+    margin: 0 0 20px;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+
+/* The dashboard grid-forms every <form>, but the 3-column layout then resets
+   forms to display:block (metasync-layout.css), which makes `gap` a no-op and,
+   with the field margins zeroed below, left every control touching the next.
+   Declare the layout here (higher specificity than both) so the gap always
+   applies, and let that gap alone space the form's children. */
+.metasync-dashboard-wrap .metasync-mcp-key-form {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-key-form > .metasync-mcp-field,
+.metasync-dashboard-wrap .metasync-mcp-key-form > .metasync-mcp-callout {
+    margin: 0;
+}
+
+/* Inside a field: label, hint and control read as one group. */
+.metasync-dashboard-wrap .metasync-mcp-field .metasync-mcp-help {
+    margin-bottom: 10px;
+}
+
+/* The full-access warning belongs to the Access choice above it: sit closer
+   to it than to the unrelated Expires field below. */
+.metasync-dashboard-wrap .metasync-mcp-key-form > .metasync-mcp-access-field + .metasync-mcp-full-warning {
+    margin-top: -8px;
+}
+
+/* Validation text injected under an input by the dashboard script. */
+.metasync-dashboard-wrap .metasync-mcp-field .input-error-message {
+    margin-top: 6px !important;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-field input[type="text"],
+.metasync-dashboard-wrap .metasync-mcp-field select {
+    max-width: 100%;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-field input[aria-invalid="true"] {
+    border-color: var(--mcp-danger);
+}
+
+/* Custom expiry: appears under the select only when "Custom number of
+   days" is chosen. */
+.metasync-dashboard-wrap .metasync-mcp-custom-expiry {
+    margin-top: 12px;
+    padding: 14px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: var(--mcp-radius);
+    background: var(--mcp-sunken);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-custom-expiry[hidden] {
+    display: none;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-custom-expiry input[type="number"] {
+    max-width: 140px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-choices {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-choice {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 14px 16px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: var(--mcp-radius);
+    background: var(--mcp-sunken);
+    cursor: pointer;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-choice:hover {
+    border-color: color-mix(in srgb, var(--dashboard-accent) 50%, var(--dashboard-border));
+}
+
+/* Native radio tinted with the accent: the WordPress-drawn dot is near-white
+   and disappears on the light theme's tinted card. */
+.metasync-dashboard-wrap .metasync-mcp-choice input[type="radio"] {
+    flex: 0 0 auto;
+    margin: 2px 0 0;
+    -webkit-appearance: radio;
+    appearance: auto;
+    accent-color: var(--dashboard-accent);
+    box-shadow: none;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-choice input[type="radio"][value="full"] {
+    accent-color: var(--mcp-caution);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-choice input[type="radio"]::before {
+    content: none;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-choice:has(input:checked) {
+    border-color: var(--dashboard-accent);
+    background: color-mix(in srgb, var(--dashboard-accent) 9%, var(--dashboard-card-bg));
+    box-shadow: 0 0 0 1px var(--dashboard-accent);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-choice:has(input[value="full"]:checked) {
+    border-color: var(--mcp-caution);
+    background: color-mix(in srgb, var(--dashboard-warning) 9%, var(--dashboard-card-bg));
+    box-shadow: 0 0 0 1px var(--mcp-caution);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-choice:has(input:focus-visible) {
+    outline: 2px solid var(--dashboard-accent);
+    outline-offset: 2px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-choice-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-choice-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-choice-desc {
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--dashboard-text-secondary);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+    padding-top: 2px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-actions .metasync-mcp-actions-note {
+    margin: 0;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-spinner {
+    float: none;
+    margin: 0;
+}
+
+/* ── Safe setup checklist ─────────────────────────────────────────────── */
+
+.metasync-dashboard-wrap .metasync-mcp-checklist {
+    list-style: none;
+    margin: 0 0 18px;
+    padding: 0;
+    counter-reset: mcp-step;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 44px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-checklist li {
+    position: relative;
+    margin: 0;
+    padding: 12px 0 12px 40px;
+    border-bottom: 1px solid var(--dashboard-border);
+    color: var(--dashboard-text-secondary);
+    font-size: 13px;
+    line-height: 1.55;
+    counter-increment: mcp-step;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-checklist li:last-child {
+    border-bottom: 0;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-checklist li::before {
+    content: counter(mcp-step);
+    position: absolute;
+    left: 0;
+    top: 11px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 24px;
+    text-align: center;
+    color: var(--mcp-info-ink);
+    background: color-mix(in srgb, var(--dashboard-accent) 14%, var(--dashboard-card-bg));
+}
+
+.metasync-dashboard-wrap .metasync-mcp-checklist strong {
+    color: var(--dashboard-text-primary);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-guide .metasync-mcp-callout {
+    margin-top: 6px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-guide .metasync-mcp-callout + .metasync-mcp-callout {
+    margin-top: 12px;
+}
+
+/* ── Callouts ─────────────────────────────────────────────────────────── */
+
+.metasync-dashboard-wrap .metasync-mcp-callout {
+    --mcp-tone: var(--mcp-info);
+    --mcp-tone-ink: var(--mcp-info-ink);
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    border: 1px solid color-mix(in srgb, var(--mcp-tone) 35%, var(--dashboard-border));
+    border-left: 4px solid var(--mcp-tone);
+    border-radius: var(--mcp-radius);
+    background: color-mix(in srgb, var(--mcp-tone) 8%, var(--dashboard-card-bg));
+    color: var(--dashboard-text-primary);
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+/* display:flex above would otherwise override the hidden attribute. */
+.metasync-dashboard-wrap .metasync-mcp-callout[hidden],
+.metasync-dashboard-wrap .metasync-mcp-reveal[hidden],
+.metasync-dashboard-wrap .metasync-mcp-tabpanel[hidden] {
+    display: none;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-callout--caution {
+    --mcp-tone: var(--mcp-caution);
+    --mcp-tone-ink: var(--mcp-caution-ink);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-callout--danger {
+    --mcp-tone: var(--mcp-danger);
+    --mcp-tone-ink: var(--mcp-danger-ink);
+}
+
+/* Security-critical messages: heavier tint and border so they stand out
+   without reading as a failure. */
+.metasync-dashboard-wrap .metasync-mcp-callout--strong {
+    border-color: color-mix(in srgb, var(--mcp-tone) 60%, var(--dashboard-border));
+    border-left-width: 5px;
+    background: color-mix(in srgb, var(--mcp-tone) 14%, var(--dashboard-card-bg));
+}
+
+.metasync-dashboard-wrap .metasync-mcp-callout-icon {
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    font-size: 20px;
+    color: var(--mcp-tone-ink);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-callout-body {
+    min-width: 0;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-callout-body p {
+    margin: 0;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-callout-title {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 14px;
+    color: var(--mcp-tone-ink);
+}
+
+/* ── Pills and status ─────────────────────────────────────────────────── */
+
+.metasync-dashboard-wrap .metasync-mcp-pill,
+.metasync-dashboard-wrap .metasync-mcp-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.6;
+    white-space: nowrap;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-pill--info {
+    color: var(--mcp-info-ink);
+    background: color-mix(in srgb, var(--dashboard-accent) 15%, var(--dashboard-card-bg));
+}
+
+.metasync-dashboard-wrap .metasync-mcp-pill--success {
+    color: var(--mcp-success-ink);
+    background: color-mix(in srgb, var(--dashboard-success) 16%, var(--dashboard-card-bg));
+}
+
+.metasync-dashboard-wrap .metasync-mcp-pill--caution {
+    color: var(--mcp-caution-ink);
+    background: color-mix(in srgb, var(--dashboard-warning) 17%, var(--dashboard-card-bg));
+}
+
+.metasync-dashboard-wrap .metasync-mcp-status::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-status-active {
+    color: var(--mcp-success-ink);
+    background: color-mix(in srgb, var(--dashboard-success) 16%, var(--dashboard-card-bg));
+}
+
+.metasync-dashboard-wrap .metasync-mcp-status-expired {
+    color: var(--mcp-caution-ink);
+    background: color-mix(in srgb, var(--dashboard-warning) 16%, var(--dashboard-card-bg));
+}
+
+.metasync-dashboard-wrap .metasync-mcp-status-revoked {
+    color: var(--dashboard-text-secondary);
+    background: color-mix(in srgb, var(--dashboard-text-secondary) 16%, var(--dashboard-card-bg));
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────── */
+
+/* Quieter style for secondary actions (copy, revoke) so the gradient is
+   kept for the primary action on each card. */
+.metasync-dashboard-wrap .metasync-mcp-keys-wrap .button.metasync-mcp-btn-secondary {
+    background: var(--mcp-sunken);
+    color: var(--dashboard-text-primary);
+    border: 1px solid var(--dashboard-border);
+    padding: 10px 16px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-wrap .button.metasync-mcp-btn-secondary:hover:not(:disabled):not([disabled]) {
+    background: color-mix(in srgb, var(--dashboard-accent) 10%, var(--dashboard-card-bg));
+    border-color: var(--dashboard-accent);
+    color: var(--dashboard-text-primary);
+    box-shadow: none;
+    transform: none;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-wrap .button.metasync-mcp-btn-secondary:focus-visible,
+.metasync-dashboard-wrap .metasync-mcp-keys-wrap .button:focus-visible,
+.metasync-dashboard-wrap .metasync-mcp-tab:focus-visible {
+    outline: 2px solid var(--dashboard-accent);
+    outline-offset: 2px;
+    box-shadow: none;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-wrap .button.metasync-mcp-btn-small {
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-wrap .button.metasync-mcp-btn-danger {
+    color: var(--mcp-danger-ink);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-wrap .button.metasync-mcp-btn-danger:hover:not(:disabled):not([disabled]) {
+    color: var(--mcp-danger-ink);
+    border-color: var(--mcp-danger);
+    background: color-mix(in srgb, var(--dashboard-error) 10%, var(--dashboard-card-bg));
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-wrap .button.is-copied,
+.metasync-dashboard-wrap .metasync-mcp-keys-wrap .button.is-copied:hover:not(:disabled):not([disabled]) {
+    border-color: var(--mcp-success);
+    color: var(--mcp-success-ink);
+    background: color-mix(in srgb, var(--dashboard-success) 12%, var(--dashboard-card-bg));
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-wrap .button-primary.is-copied {
+    color: #ffffff;
+    background: var(--dashboard-success);
+}
+
+/* ── Reveal panel and connection guide ────────────────────────────────── */
+
+.metasync-dashboard-wrap .metasync-mcp-reveal {
+    border-color: color-mix(in srgb, var(--dashboard-success) 45%, var(--dashboard-border));
+}
+
+.metasync-dashboard-wrap .metasync-mcp-reveal:focus {
+    outline: none;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-reveal .metasync-mcp-reveal-warning {
+    margin-bottom: 20px;
+    max-width: 760px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-token-field {
+    max-width: 760px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-token-input {
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-connect {
+    margin-top: 8px;
+    padding-top: 20px;
+    border-top: 1px solid var(--dashboard-border);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-connect h3 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin: 0 0 4px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-tabs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 12px 0 16px;
+    padding: 4px;
+    background: var(--mcp-sunken);
+    border: 1px solid var(--dashboard-border);
+    border-radius: var(--mcp-radius);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-tab {
+    appearance: none;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 14px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-tab:hover {
+    color: var(--dashboard-text-primary);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-tab[aria-selected="true"] {
+    background: var(--dashboard-card-bg);
+    color: var(--dashboard-text-primary);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-tabpanel {
+    max-width: 820px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-howto {
+    margin: 0 0 14px 20px;
+    padding: 0;
+    color: var(--dashboard-text-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-howto li {
+    margin-bottom: 4px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-howto strong {
+    color: var(--dashboard-text-primary);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-howto code,
+.metasync-dashboard-wrap .metasync-mcp-keys-wrap .metasync-mcp-key-mask {
+    background: var(--mcp-code-bg);
+    color: var(--dashboard-text-primary);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 12px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-snippet-wrap {
+    border: 1px solid var(--dashboard-border);
+    border-radius: var(--mcp-radius);
+    overflow: hidden;
+    background: var(--mcp-code-bg);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-snippet-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px 8px 6px 14px;
+    border-bottom: 1px solid var(--dashboard-border);
+    background: var(--mcp-sunken);
+    color: var(--dashboard-text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-wrap pre.metasync-mcp-snippet {
+    margin: 0;
+    padding: 14px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--dashboard-text-primary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 12.5px;
+    line-height: 1.6;
+    white-space: pre;
+    overflow-x: auto;
+    overflow-wrap: normal;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-values {
+    margin: 0;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-value-row {
+    margin-bottom: 12px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-value-row dt {
+    margin-bottom: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-reveal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 20px;
+    padding-top: 18px;
+    border-top: 1px solid var(--dashboard-border);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-reveal-footer .metasync-mcp-help {
+    margin: 0;
+}
+
+/* ── Keys table ───────────────────────────────────────────────────────── */
+
+/* Desktop table. It never scrolls sideways: the table is exactly as wide as
+   the card, and the layout is `fixed` so the column widths below are the
+   widths used. (An auto layout sized the columns from their content; the
+   unbreakable dates and `word-break: break-word` on the name gave the Name
+   column a one-character minimum, so it was squeezed to a sliver and the
+   rest overflowed.) Name takes whatever the fixed columns leave over, and
+   below ~980px of page width the table becomes cards (see Responsive). */
+.metasync-dashboard-wrap .metasync-mcp-table-scroll {
+    overflow: hidden;
+    border: 1px solid var(--dashboard-border);
+    border-radius: var(--mcp-radius);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-table {
+    width: 100%;
+    table-layout: fixed;
+    margin: 0;
+    border: 0;
+    box-shadow: none;
+    background: var(--dashboard-card-bg);
+    color: var(--dashboard-text-primary);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-table th,
+.metasync-dashboard-wrap .metasync-mcp-keys-table td {
+    box-sizing: border-box;
+    overflow-wrap: break-word;
+}
+
+/* Fixed columns, padding included. Name has no width and takes the rest. */
+.metasync-dashboard-wrap .metasync-mcp-keys-table .metasync-mcp-th-access {
+    width: 104px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-table .metasync-mcp-th-created,
+.metasync-dashboard-wrap .metasync-mcp-keys-table .metasync-mcp-th-used {
+    width: 148px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-table .metasync-mcp-th-expires {
+    width: 136px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-table .metasync-mcp-th-status {
+    width: 108px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-table .metasync-mcp-th-actions {
+    width: 96px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-table thead th {
+    padding: 12px;
+    background: var(--mcp-sunken);
+    color: var(--dashboard-text-secondary);
+    border-bottom: 1px solid var(--dashboard-border);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-table td {
+    padding: 14px 12px;
+    vertical-align: middle;
+    background: transparent;
+    color: var(--dashboard-text-primary);
+    border-top: 1px solid var(--dashboard-border);
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-table tbody tr:first-child td {
+    border-top: 0;
+}
+
+/* Short cells (pills, dates) stay on one line; the date columns are wide
+   enough for the longest month name, and Name wraps by word instead. */
+.metasync-dashboard-wrap .metasync-mcp-keys-table td[data-label="Access"],
+.metasync-dashboard-wrap .metasync-mcp-keys-table td[data-label="Status"],
+.metasync-dashboard-wrap .metasync-mcp-keys-table td[data-label="Created"],
+.metasync-dashboard-wrap .metasync-mcp-keys-table td[data-label="Last used"],
+.metasync-dashboard-wrap .metasync-mcp-keys-table td[data-label="Expires"] {
+    white-space: nowrap;
+}
+
+/* "by <owner>" can be a long display name: let it ellipsize, not wrap. */
+.metasync-dashboard-wrap .metasync-mcp-keys-table .metasync-mcp-cell {
+    display: block;
+    min-width: 0;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-table .metasync-mcp-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-table tbody tr:hover td {
+    background: var(--dashboard-card-hover);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-keys-table .metasync-mcp-row-revoked td,
+.metasync-dashboard-wrap .metasync-mcp-keys-table .metasync-mcp-row-expired td {
+    color: var(--dashboard-text-secondary);
+}
+
+/* Wrap at word boundaries; only an unbroken string longer than the column
+   is split. `overflow-wrap: break-word` (not `word-break: break-word` or
+   `anywhere`) so the break opportunity does not shrink min-content. */
+.metasync-dashboard-wrap .metasync-mcp-key-name {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--dashboard-text-primary);
+    font-size: 14px;
+    overflow-wrap: break-word;
+}
+
+/* The mask is a fixed-length token: keep it on one line. */
+.metasync-dashboard-wrap .metasync-mcp-keys-wrap .metasync-mcp-key-mask {
+    display: inline-block;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: top;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-sub {
+    display: block;
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--dashboard-text-secondary);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-col-actions {
+    text-align: right;
+    white-space: nowrap;
+}
+
+/* Compact Revoke button: the dashboard's 12px/24px button padding made it
+   wider and taller than the 96px actions column. */
+.metasync-dashboard-wrap .metasync-mcp-keys-table .button.metasync-mcp-revoke {
+    padding: 6px 12px;
+    min-height: 0;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-table-footnote {
+    margin: 16px 0 0;
+    max-width: 90ch;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 40px 16px;
+    border: 1px dashed var(--dashboard-border);
+    border-radius: var(--mcp-radius);
+    text-align: center;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-empty p {
+    margin: 0;
+    max-width: 46ch;
+    color: var(--dashboard-text-secondary);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-empty p.metasync-mcp-empty-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-empty-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 40px;
+    color: var(--dashboard-text-secondary);
+    opacity: 0.7;
+}
+
+/* ── Responsive ───────────────────────────────────────────────────────── */
+
+/* Narrow container (side nav open on a small laptop, or a phone): collapse
+   the multi-column groups before they get cramped. */
+@container mcp-keys (max-width: 720px) {
+    .metasync-dashboard-wrap .metasync-mcp-steps {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@container mcp-keys (max-width: 640px) {
+    .metasync-dashboard-wrap .metasync-mcp-checklist {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@container mcp-keys (max-width: 540px) {
+    .metasync-dashboard-wrap .metasync-mcp-choices {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media screen and (max-width: 782px) {
+    .metasync-dashboard-wrap .metasync-mcp-steps,
+    .metasync-dashboard-wrap .metasync-mcp-choices,
+    .metasync-dashboard-wrap .metasync-mcp-checklist {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-card-icon {
+        width: 34px;
+        height: 34px;
+        line-height: 34px;
+        font-size: 18px;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-copy-field {
+        flex-direction: column;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-copy-field .button,
+    .metasync-dashboard-wrap .metasync-mcp-actions .button,
+    .metasync-dashboard-wrap .metasync-mcp-reveal-footer .button {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-tabs {
+        display: flex;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-tab {
+        flex: 1 1 auto;
+    }
+}
+
+/* Desktop and tablet keep the semantic table layout. Only genuinely narrow
+   phone-sized containers switch to stacked cards; this avoids turning a
+   normal admin page into a long card list just because the plugin sidebar is
+   open. */
+@container mcp-keys (max-width: 540px) {
+    .metasync-dashboard-wrap .metasync-mcp-table-scroll {
+        overflow: visible;
+        border: 0;
+        border-radius: 0;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-keys-table,
+    .metasync-dashboard-wrap .metasync-mcp-keys-table tbody,
+    .metasync-dashboard-wrap .metasync-mcp-keys-table tr,
+    .metasync-dashboard-wrap .metasync-mcp-keys-table td {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-keys-table {
+        background: transparent;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-keys-table thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-keys-table tr {
+        margin-bottom: 12px;
+        padding: 6px 14px;
+        border: 1px solid var(--dashboard-border);
+        border-radius: var(--mcp-radius);
+        background: var(--mcp-sunken);
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-keys-table td,
+    .metasync-dashboard-wrap .metasync-mcp-keys-table tbody tr:first-child td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 0;
+        border-top: 1px solid var(--dashboard-border);
+        text-align: right;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-keys-table tbody tr:hover td {
+        background: transparent;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-keys-table td[data-label]::before {
+        content: attr(data-label);
+        flex: 0 0 auto;
+        font-weight: 600;
+        color: var(--dashboard-text-secondary);
+        text-align: left;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-keys-table tbody td.metasync-mcp-col-name,
+    .metasync-dashboard-wrap .metasync-mcp-keys-table tbody tr:first-child td.metasync-mcp-col-name {
+        display: block;
+        border-top: 0;
+        text-align: left;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-keys-table .metasync-mcp-cell {
+        text-align: right;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-keys-table td.metasync-mcp-col-name::before {
+        content: none;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-keys-table td.metasync-mcp-col-actions:empty {
+        display: none;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-keys-table td.metasync-mcp-col-actions .button {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* ── Tool inventory ───────────────────────────────────────────────────── */
+
+.metasync-dashboard-wrap .metasync-mcp-tools-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: -4px 0 18px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-stat {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    padding: 5px 14px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 999px;
+    background: var(--mcp-sunken);
+    color: var(--dashboard-text-secondary);
+    font-size: 13px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-stat strong {
+    font-size: 15px;
+    color: var(--dashboard-text-primary);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-stat--read {
+    border-color: color-mix(in srgb, var(--dashboard-accent) 35%, var(--dashboard-border));
+    color: var(--mcp-info-ink);
+}
+
+.metasync-dashboard-wrap .metasync-mcp-stat--write {
+    border-color: color-mix(in srgb, var(--dashboard-warning) 35%, var(--dashboard-border));
+    color: var(--mcp-caution-ink);
+}
+
+/* ── Compact capability summary ───────────────────────────────────────── */
+
+.metasync-dashboard-wrap .metasync-mcp-capability-groups {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 8px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-capability-group {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 2px 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 8px;
+    background: var(--mcp-sunken);
+    color: var(--dashboard-text-primary);
+    font-size: 13px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-capability-group strong {
+    color: var(--dashboard-text-primary);
+    font-size: 14px;
+}
+
+.metasync-dashboard-wrap .metasync-mcp-capability-group small {
+    grid-column: 1 / -1;
+    color: var(--dashboard-text-secondary);
+    font-size: 11px;
+}
+
+@container mcp-keys (max-width: 540px) {
+    .metasync-dashboard-wrap .metasync-mcp-capability-groups {
+        grid-template-columns: 1fr;
+    }
+}

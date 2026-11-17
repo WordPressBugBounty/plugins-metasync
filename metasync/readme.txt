@@ -4,7 +4,7 @@ Tags: seo, ai seo, otto, otto seo, schema
 Requires at least: 6.3
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 2.7.6
+Stable tag: 2.7.7
 License: GPL v3
 License URI: https://www.gnu.org/licenses/gpl-3.0.txt
 
@@ -113,6 +113,30 @@ Yes. The 404 Monitor logs every not-found URL with hit counts and suggests redir
 2.7.4 protects the plugin authorization token, reports lost connections only after repeated failures, and makes REST publishing, imports and OTTO link handling more reliable. Update for the latest security and stability improvements.
 
 == Changelog ==
+= 2.7.7 =
+* Fix: When OTTO delivers only part of its optimization data, the missing title or description now falls back to its normal source instead of being dropped
+* Fix: Robots directives no longer conflict with third-party SEO plugins — a page set to noindex outputs a single robots tag and the third-party plugin's competing tag is suppressed
+* Fix: OTTO heading replacements preserve inline markup such as links and emphasis, and image alt text is now applied to srcset-only images, fixing optimization on Showit and similar builder markup
+* Fix: Content sync runs only for the roles selected in Content Genius settings and never widens the selection
+* Fix: Platform-published post dates without a timezone are interpreted in the site's timezone instead of UTC
+* Fix: The CSS minifier preserves quoted content such as data-URI images and SVGs when stripping comments, and serves malformed CSS untouched
+* Fix: The CSS minifier keeps the space before a colon that follows a selector, so descendant-combinator selectors like `.menu :focus` keep matching
+* Fix: The MCP import tool now enforces white-label Custom Pages access control
+* Fix: The rollback UI is restored for Sync History rows attributed to MCP keys
+* Fix: Expired and revoked keys no longer count toward the authentication failure budget, so one stale key cannot lock out valid ones
+* Improvement: Per-client keys for AI agents — each key is issued as full-access or read-only, and every writable MCP action is attributed to its key
+* Improvement: Platform-published posts can carry schema JSON-LD, a canonical URL and an HTML language attribute, each rendered exactly once on the frontend
+* Improvement: In headless mode, the XML sitemap now publishes the site's frontend URLs
+* Improvement: Schema eligibility scans stream with keyset pagination instead of loading every post, keeping memory bounded on large sites
+* Improvement: Edge cache purge now authenticates Fastly API-token invalidation and Akamai signed-URL invalidation
+* Improvement: Repeated bot hits on 404 URLs are throttled through the object cache instead of writing database rows
+* Improvement: Every writable MCP tool call is now recorded in Sync History
+* Improvement: MCP term-with-meta listings are paginated with deterministic ordering instead of returning every term in one unbounded response
+* Improvement: The OTTO trigger MCP tool is temporarily disabled and will return in a future release
+* Improvement: The analytics version check runs only in admin and cron requests, no longer on public page views
+* Improvement: The plugin header description and copyright year are refreshed
+* Improvement: WordPress 6.3 is now the minimum supported version
+
 = 2.7.6 =
 * Security: The Plugin Auth Token is now encrypted at rest with the same AES-256-GCM mechanism as the Search Atlas API key, reading legacy plaintext values transparently during migration
 * Security: A dead legacy credential relay is removed and any token it had stored is purged

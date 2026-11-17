@@ -33,7 +33,9 @@ class Metasync_MCP_Server {
      * Authenticated identity for the current request
      *
      * Populated by authenticate_request() with the shape
-     * ['type' => 'api_key'|'jwt'|'user'|'nonce', 'id' => <stable string>].
+     * ['type' => 'api_key'|'jwt'|'user'|'nonce'|'mcp_key', 'id' => <stable string>].
+     * mcp_key identities additionally carry key_id, key_name and access
+     * ('read' or 'full') for per-key gating and attribution.
      *
      * @var array|null
      */
@@ -162,6 +164,8 @@ class Metasync_MCP_Server {
         require_once plugin_dir_path(__FILE__) . 'class-mcp-tool-base.php';
         require_once plugin_dir_path(__FILE__) . 'class-mcp-tool-registry.php';
         require_once plugin_dir_path(__FILE__) . '../includes/class-metasync-rate-limiter.php';
+        require_once plugin_dir_path(__FILE__) . 'class-metasync-mcp-keys.php';
+        require_once plugin_dir_path(__FILE__) . '../includes/class-metasync-mcp-tool-access.php';
     }
 
     /**
@@ -408,13 +412,21 @@ class Metasync_MCP_Server {
         // Check authentication
         $auth_result = $this->authenticate_request($request);
         if (is_wp_error($auth_result)) {
-            // A revoked token is not a guess. Producing one takes a valid
-            // signature over the current secret, so the caller held a real
-            // credential and simply needs to re-authenticate after a key
-            // rotation, a disconnect, or an upgrade that rebound tokens.
+            // A revoked or expired credential is not a guess. These error
+            // codes are only returned after the presented credential matched
+            // a real one (a valid JWT signature over the current secret, or
+            // the hash of an issued client key), so the caller held a
+            // genuine key and simply needs to rotate or re-authenticate.
             // Charging it would drain the very bucket the auth endpoint
-            // consults, locking a legitimate client out of its own recovery.
-            if ($auth_result->get_error_code() !== 'token_revoked') {
+            // consults, locking a legitimate client and everyone behind
+            // the same IP out of the valid replacement key. Unknown,
+            // malformed, or guessed credentials stay rate-limited.
+            $possession_proven = in_array(
+                $auth_result->get_error_code(),
+                ['token_revoked', 'mcp_key_revoked', 'mcp_key_expired'],
+                true
+            );
+            if (!$possession_proven) {
                 // Record this failure, then re-evaluate. Recording first means
                 // the attempt that crosses the threshold is counted rather
                 // than given away for free.
@@ -507,7 +519,22 @@ class Metasync_MCP_Server {
         // Method 3: JWT Bearer token (industry-standard authentication)
         $auth_header = $request->get_header('Authorization');
         if ($auth_header && preg_match('/Bearer\s+(.+)/i', $auth_header, $matches)) {
-            $jwt_token = trim($matches[1]);
+            $bearer_token = trim($matches[1]);
+
+            // Method 3a: per-client MCP key (neutral "msk_" prefix, Bearer
+            // header only, never a URL or query string). Runs as the admin
+            // who created the key, so every per-tool capability check
+            // applies to that owner. METASYNC_MCP_API_KEY_AUTH is
+            // deliberately NOT defined for this path.
+            if (strpos($bearer_token, Metasync_MCP_Keys::TOKEN_PREFIX) === 0) {
+                $client_key_result = $this->authenticate_client_key($bearer_token);
+                if (is_wp_error($client_key_result)) {
+                    return $client_key_result;
+                }
+                return true;
+            }
+
+            $jwt_token = $bearer_token;
             $jwt_revoked = false;
             $jwt_result = $this->verify_jwt_token($jwt_token, $jwt_revoked);
             if ($jwt_result !== false) {
@@ -571,13 +598,112 @@ class Metasync_MCP_Server {
     }
 
     /**
+     * Authenticate a per-client MCP key and run the request as its owner.
+     *
+     * Checks, in order: the key exists, is not revoked, is not expired, its
+     * owner still exists with manage_options, the owner still has plugin
+     * access, and the owner can still see the AI Agents (MCP) feature. On
+     * success the owner becomes the current user, so every per-tool
+     * capability check applies to them, and the identity carries the key's
+     * access level and name for read-only gating and audit attribution.
+     *
+     * METASYNC_MCP_API_KEY_AUTH is never defined on this path.
+     *
+     * @param string $token Presented client key token.
+     * @return true|WP_Error
+     */
+    private function authenticate_client_key($token) {
+        $row = Metasync_MCP_Keys::verify_token($token);
+
+        if ($row === null) {
+            return new WP_Error(
+                'mcp_key_invalid',
+                'Invalid MCP key.',
+                ['status' => 401]
+            );
+        }
+
+        if ($row->status === 'revoked') {
+            return new WP_Error(
+                'mcp_key_revoked',
+                'This MCP key has been revoked.',
+                ['status' => 401]
+            );
+        }
+
+        if (Metasync_MCP_Keys::is_expired_row($row)) {
+            return new WP_Error(
+                'mcp_key_expired',
+                'This MCP key has expired.',
+                ['status' => 401]
+            );
+        }
+
+        $owner_id = isset($row->owner_id) ? (int) $row->owner_id : 0;
+        $owner = $owner_id ? get_userdata($owner_id) : false;
+
+        if (!$owner || !$owner->exists() || !user_can($owner, 'manage_options')) {
+            return new WP_Error(
+                'mcp_key_owner_invalid',
+                'The owner of this MCP key no longer has an administrator account.',
+                ['status' => 401]
+            );
+        }
+
+        // Become the owner so permission helpers evaluate them.
+        wp_set_current_user($owner_id);
+
+        if (!Metasync::current_user_has_plugin_access() || !Metasync_Access_Control::user_can_access('hide_mcp')) {
+            wp_set_current_user(0);
+            return new WP_Error(
+                'mcp_key_access_denied',
+                'The owner of this MCP key no longer has access to the AI Agents (MCP) feature.',
+                ['status' => 403]
+            );
+        }
+
+        $this->authenticated_identity = [
+            'type'     => 'mcp_key',
+            'id'       => 'mcp_key:' . (int) $row->id,
+            'key_id'   => (int) $row->id,
+            'key_name' => isset($row->name) ? $row->name : '',
+            'access'   => ($row->access_level === Metasync_MCP_Keys::ACCESS_FULL) ? Metasync_MCP_Keys::ACCESS_FULL : Metasync_MCP_Keys::ACCESS_READ,
+        ];
+
+        Metasync_MCP_Keys::mark_used($row);
+
+        return true;
+    }
+
+    /**
+     * Get the authenticated identity of the current request.
+     *
+     * Exposed for cross-component reads (sync-history attribution) through
+     * the global $metasync_mcp_server instance the bootstrap creates.
+     *
+     * @return array|null
+     */
+    public function get_authenticated_identity() {
+        return $this->authenticated_identity;
+    }
+
+    /**
      * Handle tools/list method
+     *
+     * The registry list is cached and shared by every identity, so per-key
+     * filtering happens here, after the cache is read: a read-only key, or
+     * a key whose owner cannot see a white-labelled feature, only ever sees
+     * the tools it is allowed to call.
      *
      * @param array $params Request parameters
      * @return array
      */
     public function handle_tools_list($params) {
         $tools = $this->tool_registry->get_tools_list();
+
+        if (is_array($this->authenticated_identity) && $this->authenticated_identity['type'] === 'mcp_key') {
+            $tools = Metasync_MCP_Tool_Access::filter_tools_list($tools, $this->authenticated_identity);
+        }
 
         return [
             'tools' => $tools
@@ -611,6 +737,17 @@ class Metasync_MCP_Server {
 
         $tool_name = $params['name'];
         $tool_params = isset($params['arguments']) ? $params['arguments'] : [];
+
+        // Per-client key gating happens here, centrally, rather than inside
+        // individual tools: read-only keys cannot call write tools, and no
+        // key can call a tool whose white-labelled feature its owner cannot
+        // see. Enforced before execute() so nothing partial ever runs.
+        if (is_array($this->authenticated_identity) && $this->authenticated_identity['type'] === 'mcp_key') {
+            $denial = Metasync_MCP_Tool_Access::tool_denied_reason($tool_name, $this->authenticated_identity);
+            if (is_wp_error($denial)) {
+                throw new Exception($denial->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML
+            }
+        }
 
         // Execute tool
         try {

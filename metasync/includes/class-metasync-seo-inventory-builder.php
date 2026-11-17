@@ -195,6 +195,17 @@ class Metasync_SEO_Inventory_Builder {
                 }
             }
         }
+        // Content Genius publish payload schema: stored under its own key and
+        // rendered as a standalone tag. Count it (as its decoded @type) so
+        // CA-published posts are not reported missing_schema, which would
+        // invite a duplicate manual schema entry on top of the live tag.
+        $ca_jsonld = get_post_meta($post_id, '_metasync_ca_schema_jsonld', true);
+        if (is_string($ca_jsonld) && trim($ca_jsonld) !== '') {
+            $decoded = json_decode($ca_jsonld, true);
+            $schema_types[] = (is_array($decoded) && isset($decoded['@type']) && is_string($decoded['@type']))
+                ? strtolower($decoded['@type'])
+                : 'ca_schema';
+        }
         $seo['schema_types'] = $schema_types;
 
         $item['seo'] = $seo;

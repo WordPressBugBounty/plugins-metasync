@@ -573,6 +573,49 @@ class MCP_Tool_Update_Plugin_Settings extends MCP_Tool_Base {
             $new_options['whitelabel']['settings_password'] = Metasync::encrypt_secret($new_options['whitelabel']['settings_password']);
         }
 
+        // A role selection that matches no users must be rejected here too, not
+        // only on the settings form. Storing one would pause Content Genius user
+        // sync on every heartbeat. "All Roles" and an empty selection sync every
+        // user, so they are always allowed.
+        //
+        // Read the value off the sanitized options, not the raw payload: keys are
+        // lowercased by sanitize_key() before they are stored, so a caller who
+        // spells the key differently ("Content_Genius_Sync_Roles") would otherwise
+        // skip this check and still land on the stored path. Only check when the
+        // caller actually sent the key, so a replace-mode write that merely carries
+        // the stored selection forward is not re-validated.
+        $caller_sent_roles = false;
+        foreach ($settings as $section_key => $section_value) {
+            if (sanitize_key($section_key) !== 'general' || !is_array($section_value)) {
+                continue;
+            }
+            foreach ($section_value as $field_key => $field_value) {
+                if (sanitize_key($field_key) === 'content_genius_sync_roles') {
+                    $caller_sent_roles = true;
+                }
+            }
+        }
+        $submitted_roles = null;
+        if ($caller_sent_roles && is_array($new_options['general'] ?? null) && array_key_exists('content_genius_sync_roles', $new_options['general'])) {
+            $submitted_roles = $new_options['general']['content_genius_sync_roles'];
+        }
+        if (is_string($submitted_roles)) {
+            $submitted_roles = $submitted_roles === '' ? array() : array($submitted_roles);
+        }
+        if (is_array($submitted_roles) && $submitted_roles !== array()) {
+            if (!class_exists('Metasync_Settings_Registration')) {
+                require_once dirname(__DIR__, 2) . '/includes/class-metasync-settings-registration.php';
+            }
+            $empty_roles = Metasync_Settings_Registration::content_genius_roles_without_users($submitted_roles);
+            if ($empty_roles !== array()) {
+                throw new Exception(
+                    'Content Genius user sync was not saved. These roles have no users: '
+                    . esc_html(implode(', ', $empty_roles))
+                    . '. Pick roles that have users, or choose All Roles.'
+                );
+            }
+        }
+
         // Update the option
         $updated = update_option(Metasync::option_name, $new_options);
 

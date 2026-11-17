@@ -694,6 +694,17 @@ class Metasync_Admin_Navigation
             ];
         }
 
+        // AI Agents (MCP) page (check access control)
+        if (Metasync_Access_Control::user_can_access('hide_mcp')) {
+            $menu_items['mcp_keys'] = [
+                'title' => 'AI Agents',
+                'slug_suffix' => '-mcp-keys',
+                'callback' => 'create_admin_mcp_keys_page',
+                'internal_nav' => 'AI Agents (MCP)',
+                'group' => 'plugin'
+            ];
+        }
+
         // Bot Statistics
         $menu_items['bot_statistics'] = [
             'title' => 'Bot Statistics',
@@ -879,6 +890,11 @@ class Metasync_Admin_Navigation
             $register_submenu('sync_log', 'Changes Log', 'Changes Log', $menu_capability, $menu_slug . '-sync-log', array($admin, 'create_admin_sync_log_page'));
         }
 
+        // AI Agents (MCP) page — per-client MCP keys
+        if (Metasync_Access_Control::user_can_access('hide_mcp')) {
+            $register_submenu('mcp_keys', 'AI Agents (MCP)', 'AI Agents', $menu_capability, $menu_slug . '-mcp-keys', array($admin, 'create_admin_mcp_keys_page'));
+        }
+
         // Report Issue
         if (Metasync_Access_Control::user_can_access('hide_report_issue')) {
             $register_submenu('report_issue', 'Report Issue', 'Report Issue', $menu_capability, $menu_slug . '-report-issue', array($admin, 'create_admin_report_issue_page'));
@@ -970,7 +986,8 @@ class Metasync_Admin_Navigation
             'code_snippets'    => 'editor-code',
             'report_issue'     => 'sos',
             'error_log'        => 'warning',
-            'seo_health'       => 'heart'
+            'seo_health'       => 'heart',
+            'mcp_keys'         => 'rest-api'
 
         ];
 
@@ -1830,7 +1847,8 @@ class Metasync_Admin_Navigation
             'bot_statistics'   => 'visibility',
             'report_issue'     => 'sos',
             'media_optimization'=> 'images-alt2',
-            'seo_health'       => 'heart'
+            'seo_health'       => 'heart',
+            'mcp_keys'         => 'rest-api'
         ];
 
         $seo_items    = [];

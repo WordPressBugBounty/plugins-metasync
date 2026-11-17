@@ -1,7 +1,7 @@
 <?php
 /**
  * Metasync_CSS_Minifier
- * Regex-based CSS minification engine.
+ * Scanner-based comment removal with protected strings and regex-based CSS minification.
  * Hooks into style_loader_tag to rewrite enqueued stylesheets to cached minified versions.
  *
  * @package     Search Atlas SEO
@@ -81,22 +81,91 @@ class Metasync_CSS_Minifier {
     }
 
     /**
-     * Minify a CSS string using regex-based transformations.
+     * Minify CSS after scanning comments and protecting quoted spans from transformations.
+     * Restore protected bytes nonrecursively; return the original CSS on malformed constructs.
      *
      * @param string $css Raw CSS content.
      * @return string Minified CSS.
      */
     public static function minify(string $css): string {
-        // 1. Remove CSS comments
-        $css = preg_replace('/\/\*[\s\S]*?\*\//', '', $css);
+        // 1. Scan real comments, quoted strings, and escapes before applying regexes.
+        $original = $css;
+        $length = strlen($css);
+        $masked = '';
+        $protected = [];
+        $state = 'normal';
+        $start = 0;
+
+        for ($i = 0; $i < $length; $i++) {
+            $byte = $css[$i];
+
+            if ($state === 'comment') {
+                if ($byte === '*' && $i + 1 < $length && $css[$i + 1] === '/') {
+                    $state = 'normal';
+                    $i++;
+                }
+                continue;
+            }
+
+            // Consume escaped bytes atomically, including CRLF continuations.
+            if ($byte === '\\') {
+                $escape_start = $i;
+                if (++$i >= $length) {
+                    return $original;
+                }
+                if ($css[$i] === "\r" && $i + 1 < $length && $css[$i + 1] === "\n") {
+                    $i++;
+                }
+                if ($state === 'normal') {
+                    $token = "\0s" . count($protected) . "\0";
+                    $protected[$token] = substr($css, $escape_start, $i - $escape_start + 1);
+                    $masked .= $token;
+                }
+                continue;
+            }
+
+            if ($state === "'" || $state === '"') {
+                if ($byte === $state) {
+                    $token = "\0s" . count($protected) . "\0";
+                    $protected[$token] = substr($css, $start, $i - $start + 1);
+                    $masked .= $token;
+                    $state = 'normal';
+                } elseif ($byte === "\r" || $byte === "\n" || $byte === "\f") {
+                    return $original;
+                }
+                continue;
+            }
+
+            if ($byte === '/' && $i + 1 < $length && $css[$i + 1] === '*') {
+                $state = 'comment';
+                $i++;
+            } elseif ($byte === "'" || $byte === '"') {
+                $state = $byte;
+                $start = $i;
+            } elseif ($byte === "\0") {
+                // Hide source NULs so source text cannot impersonate generated tokens.
+                $token = "\0n" . count($protected) . "\0";
+                $protected[$token] = $byte;
+                $masked .= $token;
+            } else {
+                $masked .= $byte;
+            }
+        }
+
+        if ($state !== 'normal') {
+            return $original;
+        }
+        $css = $masked;
 
         // 2. Collapse whitespace
         $css = preg_replace('/\s+/', ' ', $css);
 
-        // 3. Remove spaces around { } : ; ,
+        // 3. Remove spaces around { } ; , and after : only. Whitespace before
+        // a colon is the descendant combinator in selectors (`.menu :focus`),
+        // so removing it changes what the selector matches.
         $css = preg_replace('/\s*\{\s*/', '{', $css);
         $css = preg_replace('/\s*\}\s*/', '}', $css);
-        $css = preg_replace('/\s*:\s*/', ':', $css);
+        $css = preg_replace('/:\s+/', ':', $css);
         $css = preg_replace('/\s*;\s*/', ';', $css);
         $css = preg_replace('/\s*,\s*/', ',', $css);
 
@@ -106,7 +175,9 @@ class Metasync_CSS_Minifier {
         // 5. Remove units after zero (0px -> 0), but not 0% (used in keyframes/gradients)
         $css = preg_replace('/(?<=[\s:,])0(?:px|em|rem|ex|ch|vw|vh|vmin|vmax|cm|mm|in|pt|pc)\b/', '0', $css);
 
-        return trim($css);
+        // One nonrecursive pass prevents restored source text from becoming another token.
+        // Keep the NUL delimiters intact when a protected span is at either edge.
+        return strtr(trim($css, " \t\n\r\x0B"), $protected);
     }
 
     /**

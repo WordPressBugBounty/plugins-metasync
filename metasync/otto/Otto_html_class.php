@@ -20,6 +20,14 @@ Class Metasync_otto_html{
     const HEAD_OPTIMIZED_TOKEN  = 'metasync_optimized';
     const HEAD_OPTIMIZED_MARKER = '<!--metasync_optimized-->';
 
+    /**
+     * One attribute (leading whitespace, name, optional value in any quoting
+     * form). Used to walk a tag attribute by attribute, so text such as
+     * title="how to use alt=text" is consumed as part of the title value and
+     * is never mistaken for an alt attribute.
+     */
+    const TAG_ATTRIBUTE_PATTERN = '/(\s*)([^\s"\'>\/=]+)(\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s"\'>]+))?/';
+
     # html dom
     private $dom;
 
@@ -391,43 +399,94 @@ Class Metasync_otto_html{
      * Those return null so the caller leaves the heading alone — an unapplied
      * suggestion is better than silently restyling the customer's content.
      *
+     * Leading/trailing non-breaking spaces and <br> tags (e.g. Showit's
+     * `&nbsp;Popular Topics:<br>`) are edge padding, not a second text run:
+     * they are kept verbatim around the new text. A <br> BETWEEN two runs of
+     * text is still ambiguous and skipped.
+     *
      * @param string $inner_html       Current inner HTML of the heading.
      * @param string $replacement_text New text, already escaped by the caller.
      * @return string|null New inner HTML, or null to skip this heading.
      */
     public static function build_heading_inner_html($inner_html, $replacement_text) {
-        $inner = trim($inner_html);
+        $inner = trim((string) $inner_html);
+
+        # Split off edge padding (&nbsp; / <br>) so it survives the swap.
+        list($lead, $core, $trail) = self::split_heading_edge_padding($inner);
+
+        # Padding only, no text run to replace.
+        if ($core === '' && ($lead !== '' || $trail !== '')) {
+            return null;
+        }
 
         # Plain text — nothing to preserve.
-        if (strpos($inner, '<') === false) {
-            return $replacement_text;
+        if (strpos($core, '<') === false) {
+            return $lead . $replacement_text . $trail;
         }
 
         # Inline elements whose wrapper carries the styling worth keeping.
         # Deliberately excludes <br>: it encodes line structure, not styling,
-        # and its presence means the heading has more than one text run.
+        # and its presence between text means the heading has more than one
+        # text run.
         $inline = 'span|em|strong|b|i|u|a|small|mark|abbr|cite|q|s|sub|sup|font';
 
-        $open  = '';
-        $close = '';
-
-        # Peel wrappers outermost-in. The greedy (.*) means a heading with
-        # sibling elements (e.g. <em>A</em><br><em>B</em>) leaves stray tags in
-        # $inner, which the ambiguity check below then rejects.
-        while (preg_match('#^<(' . $inline . ')(\s[^>]*)?>(.*)</\1\s*>$#is', $inner, $m)) {
-            # Group 2 (the attribute list) is optional but always captured as ''
-            # when absent, because group 3 follows it.
-            $open .= '<' . $m[1] . $m[2] . '>';
-            $close = '</' . $m[1] . '>' . $close;
-            $inner = trim($m[3]);
-
-            if (strpos($inner, '<') === false) {
-                return $open . $replacement_text . $close;
-            }
+        # Peel one wrapper and recurse into it. The greedy (.*) means a heading
+        # with sibling elements (e.g. <em>A</em><br><em>B</em>) leaves stray
+        # tags in the child, which the recursion then rejects.
+        if (!preg_match('#^<(' . $inline . ')(\s[^>]*)?>(.*)</\1\s*>$#is', $core, $m)) {
+            # Markup that is not a single inline wrapper — ambiguous.
+            return null;
         }
 
-        # Still markup left after peeling — ambiguous, so don't touch it.
-        return null;
+        $child = self::build_heading_inner_html($m[3], $replacement_text);
+        if ($child === null) {
+            return null;
+        }
+
+        # Group 2 (the attribute list) is optional but always captured as ''
+        # when absent, because group 3 follows it.
+        return $lead . '<' . $m[1] . $m[2] . '>' . $child . '</' . $m[1] . '>' . $trail;
+    }
+
+    /**
+     * Split a heading's inner HTML into [leading padding, core, trailing
+     * padding], where padding is any run of whitespace, non-breaking spaces
+     * (raw U+00A0 or its entity forms) and <br> tags.
+     *
+     * Uses explicit byte classes rather than \s or the /u flag: \s can match
+     * the 0xA0 continuation byte of a multi-byte UTF-8 character under some
+     * locales, and /u makes preg fail outright on invalid UTF-8.
+     *
+     * @param string $inner Trimmed inner HTML.
+     * @return array{0:string,1:string,2:string}
+     */
+    private static function split_heading_edge_padding($inner) {
+        $pad = '(?:[ \t\n\r\f\v]|&nbsp;|&#0*160;|&#x0*a0;|\xC2\xA0|<br\s*\/?>)';
+
+        if (preg_match('/^(' . $pad . '*)(.*?)(' . $pad . '*)\z/is', $inner, $m)) {
+            # Whitespace-only padding is dropped, as before.
+            $lead  = trim($m[1]) === '' ? '' : $m[1];
+            $trail = trim($m[3]) === '' ? '' : $m[3];
+            return [$lead, $m[2], $trail];
+        }
+
+        return ['', $inner, ''];
+    }
+
+    /**
+     * Normalise heading text for matching OTTO's current_value against the
+     * page: decode entities, treat non-breaking spaces as spaces, collapse
+     * whitespace runs and trim. Without this, `&nbsp;Popular Topics:` never
+     * equals OTTO's `Popular Topics:`.
+     *
+     * @param string $text Heading text (tags already stripped).
+     * @return string
+     */
+    public static function normalize_heading_text($text) {
+        $text = html_entity_decode((string) $text, ENT_QUOTES, 'UTF-8');
+        $text = str_replace("\xC2\xA0", ' ', $text);
+
+        return trim(preg_replace('/\s+/', ' ', $text));
     }
 
     /**
@@ -881,8 +940,13 @@ Class Metasync_otto_html{
             $url_params['otto_block_title'] = $replacement_data['_otto_blocking']['block_title'] ? '1' : '0';
             # For HTTP fetch path, check if any description tags need blocking
             $block_description_tags = $replacement_data['_otto_blocking']['block_description_tags'] ?? [];
-            $url_params['otto_block_desc'] = !empty($block_description_tags) ? '1' : '0';        
+            $url_params['otto_block_desc'] = !empty($block_description_tags) ? '1' : '0';
+            # Tell the fetched page WHICH description tags OTTO has, so an SEO
+            # plugin's plain meta description survives when OTTO only has og/twitter.
+            if (!empty($block_description_tags) && function_exists('metasync_otto_encode_description_tags')) {
+                $url_params['otto_block_desc_tags'] = metasync_otto_encode_description_tags($block_description_tags);
             }
+        }
         
         $request_body = add_query_arg($url_params, $route);
         
@@ -1144,13 +1208,13 @@ Class Metasync_otto_html{
                 }
 
                 $heading_type = preg_quote($heading['type'], '/');
-                $current_value = trim(preg_replace('/\s+/', ' ', html_entity_decode($heading['current_value'], ENT_QUOTES, 'UTF-8')));
+                $current_value = self::normalize_heading_text($heading['current_value']);
                 $recommended_value = htmlspecialchars($heading['recommended_value'], ENT_QUOTES, 'UTF-8');
 
                 $result_html = preg_replace_callback(
                     '/(<' . $heading_type . '(?:\s[^>]*)?>)(.*?)(<\/' . $heading_type . '>)/is',
                     function ($m) use ($current_value, $recommended_value) {
-                        $inner_text = trim(preg_replace('/\s+/', ' ', html_entity_decode(wp_strip_all_tags($m[2]), ENT_QUOTES, 'UTF-8')));
+                        $inner_text = self::normalize_heading_text(wp_strip_all_tags($m[2]));
                         if ($inner_text !== $current_value) {
                             return $m[0];
                         }
@@ -1367,7 +1431,7 @@ Class Metasync_otto_html{
         foreach (explode('&', $query) as $part) {
             $name = strstr($part, '=', true);
             $name = $name === false ? $part : $name;
-            if (in_array($name, ['is_otto_page_fetch', 'otto_block_title', 'otto_block_desc'], true)) {
+            if (in_array($name, ['is_otto_page_fetch', 'otto_block_title', 'otto_block_desc', 'otto_block_desc_tags'], true)) {
                 continue;
             }
             $parts[] = $part;
@@ -1626,15 +1690,25 @@ Class Metasync_otto_html{
         # PERFORMANCE OPTIMIZATION: O(n²) reduced to O(n)
         # Single pass with hash map lookup instead of nested loop
         foreach($images AS $key => $image){
-            # Get image src
-            $image_src = $image->src;
+            # Candidate URLs: the src, or — for srcset-only markup such as
+            # Showit's <image srcset="//static.showit.co/..."> — each srcset URL.
+            $candidates = $this->get_element_image_urls($image->getAttribute('src'), $image->getAttribute('srcset'));
 
-            if (empty($image_src)) {
+            if (empty($candidates)) {
                 continue;
             }
 
-            # Hash map lookup O(1) instead of loop O(n)
-            $alt_text = $this->lookup_image_alt($alt_lookup, $image_src);
+            # Hash map lookup O(1) instead of loop O(n). An empty suggestion
+            # is "no suggestion": it must not wipe the author's existing alt
+            # (the string fallback already skips empty values the same way).
+            $alt_text = null;
+            foreach ($candidates as $candidate) {
+                $found = $this->lookup_image_alt($alt_lookup, $candidate);
+                if (is_scalar($found) && (string) $found !== '') {
+                    $alt_text = (string) $found;
+                    break;
+                }
+            }
             if ($alt_text !== null) {
                 # Set alt text - Note: This may not persist in all cases
                 # Manual string replacement in process_html_directly() ensures it's applied
@@ -1644,10 +1718,10 @@ Class Metasync_otto_html{
                 $current_html = $image->outertext;
 
                 # Remove existing alt attribute (if any)
-                $updated_html = preg_replace('/\s+alt=(["\'])[^"\']*\1/', '', $current_html);
+                $updated_html = self::strip_alt_attributes($current_html);
 
-                # Insert new alt attribute after the opening <img
-                $updated_html = preg_replace('/^<img\s/', '<img alt="' . str_replace('$', '\\$', $new_alt) . '" ', $updated_html);
+                # Insert new alt attribute after the opening <img / <image
+                $updated_html = preg_replace('/^<(img|image)\s/i', '<${1} alt="' . str_replace('$', '\\$', $new_alt) . '" ', $updated_html);
 
                 # Update the element
                 $image->outertext = $updated_html;
@@ -1695,7 +1769,14 @@ Class Metasync_otto_html{
 
         $host = wp_parse_url($url, PHP_URL_HOST);
         if (!empty($host) && strtolower($host) !== $this->get_site_host()) {
-            # Foreign host: exact match only
+            # Foreign host: exact match, plus the scheme-less form so a
+            # protocol-relative src (//cdn.example/x.jpg, as Showit emits)
+            # matches OTTO's https://cdn.example/x.jpg. Host and path must
+            # still agree exactly.
+            $schemeless = $this->strip_url_scheme($url);
+            if ($schemeless !== $url) {
+                $variants[] = $schemeless;
+            }
             return $variants;
         }
 
@@ -1705,6 +1786,93 @@ Class Metasync_otto_html{
         }
 
         return $variants;
+    }
+
+    /**
+     * Drop an http(s) scheme, keeping the protocol-relative form
+     * (https://cdn.example/x.jpg -> //cdn.example/x.jpg). Other URLs are
+     * returned unchanged.
+     *
+     * @param string $url
+     * @return string
+     */
+    private function strip_url_scheme($url) {
+        return preg_replace('#^https?:(?=//)#i', '', (string) $url);
+    }
+
+    /**
+     * Candidate URLs for one image element: its src first, then every URL
+     * in its srcset. Showit renders srcset-only <image> tags with no src, so
+     * without the srcset candidates those images can never be matched.
+     *
+     * @param string|null $src    The element's src attribute.
+     * @param string|null $srcset The element's srcset attribute.
+     * @return array Unique, non-empty candidate URLs.
+     */
+    private function get_element_image_urls($src, $srcset) {
+        $urls = [];
+
+        if (is_string($src) && trim($src) !== '') {
+            $urls[] = trim($src);
+        }
+
+        foreach ($this->parse_srcset_urls($srcset) as $url) {
+            if (!in_array($url, $urls, true)) {
+                $urls[] = $url;
+            }
+        }
+
+        return $urls;
+    }
+
+    /**
+     * Extract the URLs from a srcset value, following the HTML parsing
+     * rules: a candidate's URL is a run of non-whitespace characters (it may
+     * contain commas, e.g. CDN transform params), and trailing commas end
+     * the candidate. Descriptors (200w, 2x) are discarded.
+     *
+     * @param string|null $srcset
+     * @return array
+     */
+    private function parse_srcset_urls($srcset) {
+        $urls = [];
+
+        if (!is_string($srcset) || $srcset === '') {
+            return $urls;
+        }
+
+        $srcset = html_entity_decode($srcset, ENT_QUOTES, 'UTF-8');
+        $len = strlen($srcset);
+        $pos = 0;
+
+        while ($pos < $len) {
+            # Skip separators before the URL.
+            $pos += strspn($srcset, " \t\n\r\f,", $pos);
+            if ($pos >= $len) {
+                break;
+            }
+
+            # The URL is the next run of non-whitespace.
+            $url_len = strcspn($srcset, " \t\n\r\f", $pos);
+            $url = substr($srcset, $pos, $url_len);
+            $pos += $url_len;
+
+            # A URL ending in commas has no descriptors.
+            $trimmed = rtrim($url, ',');
+            if ($trimmed !== $url) {
+                $url = $trimmed;
+            } else {
+                # Skip the descriptors, up to the next comma.
+                $comma = strpos($srcset, ',', $pos);
+                $pos = $comma === false ? $len : $comma + 1;
+            }
+
+            if ($url !== '') {
+                $urls[] = $url;
+            }
+        }
+
+        return $urls;
     }
 
     /**
@@ -1813,12 +1981,13 @@ Class Metasync_otto_html{
             # relative img srcs match OTTO's absolute suggestion URLs.
             $src_pattern = $this->get_image_src_pattern($image_url);
 
-            if (empty($alt_text) || $src_pattern === null || strpos($html, $src_pattern['needle']) === false) {
+            if (empty($alt_text) || !is_scalar($alt_text) || $src_pattern === null || strpos($html, $src_pattern['needle']) === false) {
                 continue;
             }
+            $alt_text = (string) $alt_text;
 
             $escaped_alt = htmlspecialchars($alt_text, ENT_QUOTES, 'UTF-8');
-            $img_pattern = '/<img[^>]*src=["\']' . $src_pattern['pattern'] . '["\'][^>]*>/i';
+            $img_pattern = '/<(?:img|image)(?=\s)[^>]*src=["\']' . $src_pattern['pattern'] . '["\'][^>]*>/i';
 
             if (preg_match_all($img_pattern, $html, $img_matches)) {
                 foreach ($img_matches[0] as $original_img) {
@@ -1827,11 +1996,11 @@ Class Metasync_otto_html{
                     }
 
                     # Remove ALL existing alt attributes
-                    $new_img = preg_replace('/\s+alt\s*=\s*(["\'])[^"\']*\1/i', '', $original_img);
-                    $new_img = preg_replace('/<img\s+alt\s*=\s*(["\'])[^"\']*\1\s*/i', '<img ', $new_img);
+                    $new_img = self::strip_alt_attributes($original_img);
+                    $new_img = preg_replace('/^<(img|image)\s+alt\s*=\s*(["\'])[^"\']*\2\s*/i', '<${1} ', $new_img);
 
-                    # Add single alt attribute after <img
-                    $new_img = preg_replace('/^<img\s*/i', '<img alt="' . str_replace('$', '\\$', $escaped_alt) . '" ', $new_img);
+                    # Add single alt attribute after <img / <image
+                    $new_img = preg_replace('/^<(img|image)\s*/i', '<${1} alt="' . str_replace('$', '\\$', $escaped_alt) . '" ', $new_img);
 
                     # Update data-et-multi-view JSON if present (Divi theme)
                     if (strpos($new_img, 'data-et-multi-view') !== false) {
@@ -1862,7 +2031,121 @@ Class Metasync_otto_html{
             }
         }
 
-        return $html;
+        return $this->apply_image_alt_text_via_srcset($html, $replacement_data['body_substitutions']['images']);
+    }
+
+    /**
+     * String fallback for image tags that have no src attribute and carry
+     * their URLs only in srcset — Showit renders every image as
+     * <image srcset="//static.showit.co/... 200w, ..."></image>. A tag that
+     * HAS a src is left to the src matching above: the src is authoritative.
+     *
+     * @param string $html
+     * @param array  $images OTTO body_substitutions.images map (url => alt)
+     * @return string
+     */
+    private function apply_image_alt_text_via_srcset($html, $images) {
+        if (stripos($html, 'srcset') === false) {
+            return $html;
+        }
+
+        $alt_lookup = $this->build_image_alt_lookup($images);
+
+        $apply = function ($segment) use ($alt_lookup) {
+            return preg_replace_callback(
+                '/<(img|image)(?=[\s\/>])[^>]*>/i',
+                function ($m) use ($alt_lookup) {
+                    $tag = $m[0];
+
+                    # Has a real src (not data-src etc.) — not this pass's job.
+                    if (preg_match('/(?<![\w-])src\s*=/i', $tag)) {
+                        return $tag;
+                    }
+
+                    if (!preg_match('/(?<![\w-])srcset\s*=\s*(["\'])(.*?)\1/is', $tag, $srcset_match)) {
+                        return $tag;
+                    }
+
+                    $alt_text = null;
+                    foreach ($this->parse_srcset_urls($srcset_match[2]) as $candidate) {
+                        $found = $this->lookup_image_alt($alt_lookup, $candidate);
+                        if (is_scalar($found) && (string) $found !== '') {
+                            $alt_text = (string) $found;
+                            break;
+                        }
+                    }
+
+                    if ($alt_text === null) {
+                        return $tag;
+                    }
+
+                    $escaped_alt = htmlspecialchars($alt_text, ENT_QUOTES, 'UTF-8');
+
+                    # Remove every existing alt, then add the single new one.
+                    $new_tag = self::strip_alt_attributes($tag);
+                    return preg_replace('/^<(img|image)\s*/i', '<${1} alt="' . str_replace('$', '\\$', $escaped_alt) . '" ', $new_tag, 1);
+                },
+                $segment
+            );
+        };
+
+        # Only touch markup outside <script>/<style>: an image tag written
+        # inside a JS/JSON string must not get a double-quoted alt that would
+        # end that string early. On any failure the HTML is returned as-is.
+        $out = '';
+        $offset = 0;
+        $length = strlen($html);
+        while ($offset < $length && preg_match('/<(script|style)\b/i', $html, $open, PREG_OFFSET_CAPTURE, $offset)) {
+            $start = $open[0][1];
+            $close = stripos($html, '</' . $open[1][0], $start + strlen($open[0][0]));
+            if ($close === false) {
+                # Unclosed tag: skip only the "<script"/"<style" token and keep going.
+                $end = $start + strlen($open[0][0]);
+            } else {
+                $gt = strpos($html, '>', $close);
+                $end = ($gt === false) ? $length : $gt + 1;
+            }
+
+            $segment = $apply(substr($html, $offset, $start - $offset));
+            if (!is_string($segment)) {
+                return $html;
+            }
+            $out .= $segment . substr($html, $start, $end - $start);
+            $offset = $end;
+        }
+
+        $segment = $apply((string) substr($html, $offset));
+        if (!is_string($segment)) {
+            return $html;
+        }
+
+        return $out . $segment;
+    }
+
+    /**
+     * Remove every alt attribute from one opening tag. The tag is walked
+     * attribute by attribute, so only a real alt attribute is removed — never
+     * text inside another attribute's value. Quoted, other-quote and unquoted
+     * alt values are all removed whole. Returns the tag unchanged on failure.
+     *
+     * @param string $tag Opening tag, e.g. <img src="..." alt="...">
+     * @return string
+     */
+    private static function strip_alt_attributes($tag) {
+        if (!preg_match('/^<[a-z][^\s\/>]*/i', $tag, $name_match)) {
+            return $tag;
+        }
+
+        $prefix = $name_match[0];
+        $stripped = preg_replace_callback(
+            self::TAG_ATTRIBUTE_PATTERN,
+            function ($m) {
+                return strcasecmp($m[2], 'alt') === 0 ? '' : $m[0];
+            },
+            substr($tag, strlen($prefix))
+        );
+
+        return is_string($stripped) ? $prefix . $stripped : $tag;
     }
 
     /**
@@ -1887,8 +2170,13 @@ Class Metasync_otto_html{
         $host = wp_parse_url($image_url, PHP_URL_HOST);
         $site_host = $this->get_site_host();
 
-        # Foreign host: exact match only
+        # Foreign host: exact match, except the http(s) scheme is optional so
+        # a protocol-relative src (//cdn.example/x.jpg) matches too.
         if (!empty($host) && strtolower($host) !== $site_host) {
+            $schemeless = $this->strip_url_scheme($image_url);
+            if ($schemeless !== $image_url) {
+                return ['needle' => $schemeless, 'pattern' => '(?:https?:)?' . preg_quote($schemeless, '/')];
+            }
             return ['needle' => $image_url, 'pattern' => preg_quote($image_url, '/')];
         }
 
@@ -1920,7 +2208,7 @@ Class Metasync_otto_html{
                 $text = $heading_old->text();
 
                 # check matching text
-                if(trim($heading['current_value'] ?? '') == trim($text ?? '')){
+                if(self::normalize_heading_text($heading['current_value'] ?? '') === self::normalize_heading_text($text ?? '')){
 
                     # Rebuild the inner HTML, keeping the author's inline
                     # formatting. Returns null when the markup can't be preserved
@@ -2253,6 +2541,55 @@ Class Metasync_otto_html{
     }
 
     /**
+     * Return the active SEO plugin's description, or a generated post excerpt.
+     * This is called only when the final HTML has no standard description tag.
+     *
+     * @param int $post_id Queried post ID.
+     * @return string
+     */
+    private function get_native_description_fallback($post_id) {
+        try {
+            if (function_exists('YoastSEO')) {
+                $yoast = YoastSEO();
+                if (is_object($yoast) && isset($yoast->meta)) {
+                    $meta = $yoast->meta->for_current_page();
+                    if (is_object($meta) && !empty($meta->description)) {
+                        return trim(wp_strip_all_tags((string) $meta->description));
+                    }
+                }
+            }
+
+            if (class_exists('RankMath\\Paper\\Paper')) {
+                $description = \RankMath\Paper\Paper::get()->get_description();
+                if (!empty($description)) {
+                    return trim(wp_strip_all_tags((string) $description));
+                }
+            }
+
+            if (function_exists('aioseo')) {
+                $aioseo = aioseo();
+                if (is_object($aioseo) && isset($aioseo->meta->description)
+                    && is_object($aioseo->meta->description)
+                    && method_exists($aioseo->meta->description, 'getDescription')) {
+                    $description = $aioseo->meta->description->getDescription((int) $post_id);
+                    if (!empty($description)) {
+                        return trim(wp_strip_all_tags((string) $description));
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // A third-party SEO API must never break the rendered page.
+        }
+
+        $post = get_post($post_id);
+        if (!$post || empty($post->post_content)) {
+            return '';
+        }
+        $content = wp_strip_all_tags(strip_shortcodes($post->post_content));
+        return trim(wp_trim_words(preg_replace('/\\s+/', ' ', $content), 30, ''));
+    }
+
+    /**
      * Enforce the resolved SEO title, description and keywords as the FINAL
      * word over OTTO.
      *
@@ -2307,9 +2644,28 @@ Class Metasync_otto_html{
             }
         }
 
+        # If no MetaSync/OTTO value exists, retain the native SEO title. A theme
+        # can omit <title> entirely, so synthesize the native WordPress title as
+        # the final safety net rather than returning a document without one.
+        if (preg_match('/<head\b[^>]*>.*?<title\b[^>]*>.*?<\/title>/is', $html) === 0) {
+            $fallback_title = '';
+            try {
+                $fallback_title = function_exists('wp_get_document_title')
+                    ? (string) wp_get_document_title()
+                    : '';
+            } catch (\Throwable $e) {
+                $fallback_title = '';
+            }
+            if ($fallback_title === '') {
+                $fallback_title = get_the_title($post_id) . ' | ' . get_bloginfo('name');
+            }
+            $title_tag = '<title>' . htmlspecialchars($fallback_title, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8', false) . '</title>';
+            $html = preg_replace_callback('/(<head[^>]*>)/i', function ($m) use ($title_tag) {
+                return $m[1] . "\n" . $title_tag;
+            }, $html, 1);
+        }
+
         # Description — replace the resolved page description into the SEO
-        # <meta name="description"> only. OG/Twitter description is social
-        # precedence and remains outside this setting's scope.
         $resolved_description = Metasync_Seo_Precedence::resolve(
             $post_id,
             Metasync_Seo_Precedence::FIELD_DESCRIPTION
@@ -2324,6 +2680,20 @@ Class Metasync_otto_html{
                 ? 'otto'
                 : 'custom';
             $html = $this->force_custom_meta($html, 'name', 'description', $esc, $marker);
+        } elseif (preg_match('/<meta\s[^>]*(?<![-\w])name\s*=\s*["\']description["\'][^>]*\/?>/i', $html) !== 1) {
+            # The native plugin may have been suppressed during the OTTO fetch,
+            # or the theme may never have emitted it. Read the native value first
+            # and use the same lightweight excerpt as MetaSync's normal emitter.
+            $fallback_description = $this->get_native_description_fallback($post_id);
+            if ($fallback_description !== '') {
+                $html = $this->force_custom_meta(
+                    $html,
+                    'name',
+                    'description',
+                    htmlspecialchars($fallback_description, ENT_QUOTES, 'UTF-8'),
+                    'custom'
+                );
+            }
         }
 
         # Keywords — the same final pass as the description above, on the chain
@@ -2700,26 +3070,32 @@ Class Metasync_otto_html{
      * @return string HTML with at most one <title> tag.
      */
     private function deduplicate_title_tags($html) {
-        $title_count = preg_match_all('/<title[^>]*>.*?<\/title>/is', $html, $title_matches);
-        if ($title_count <= 1) {
-            return $html;
-        }
+        return preg_replace_callback('/(<head\\b[^>]*>)(.*?)(<\\/head\\s*>)/is', function ($head_match) {
+            $head_open = $head_match[1];
+            $head_inner = $head_match[2];
+            $head_close = $head_match[3];
+            $svg_placeholders = [];
+            $protected_head = preg_replace_callback('/<svg\\b[^>]*>.*?<\\/svg\\s*>/is', function ($svg_match) use (&$svg_placeholders) {
+                $placeholder = '__METASYNC_SVG_TITLE_' . count($svg_placeholders) . '__';
+                $svg_placeholders[$placeholder] = $svg_match[0];
+                return $placeholder;
+            }, $head_inner);
+            $title_count = preg_match_all('/<title\\b[^>]*>.*?<\\/title\\s*>/is', $protected_head, $title_matches);
+            if ($title_count <= 1) {
+                return $head_match[0];
+            }
 
-        # Capture the first title's inner text (OTTO's replacement)
-        preg_match('/<title[^>]*>(.*?)<\/title>/is', $html, $first_title);
-        $authoritative_title = isset($first_title[1]) ? $first_title[1] : '';
-
-        # Strip all <title> tags
-        $html = preg_replace('/<title[^>]*>.*?<\/title>/is', '', $html);
-
-        # Re-insert a single <title> after <head> using preg_replace_callback to prevent
-        # backreference injection when title contains $ followed by digits (e.g. "$50 off")
-        $title_tag = '<title>' . $authoritative_title . '</title>';
-        $html = preg_replace_callback('/(<head[^>]*>)/i', function ($m) use ($title_tag) {
-            return $m[1] . $title_tag;
-        }, $html, 1);
-
-        return $html;
+            # Capture the first document title's inner text (OTTO's replacement).
+            preg_match('/<title\\b[^>]*>(.*?)<\\/title\\s*>/is', $protected_head, $first_title);
+            $authoritative_title = isset($first_title[1]) ? $first_title[1] : '';
+            $protected_head = preg_replace('/<title\\b[^>]*>.*?<\\/title\\s*>/is', '', $protected_head);
+            $title_tag = '<title>' . $authoritative_title . '</title>';
+            $protected_head = $title_tag . $protected_head;
+            if (!empty($svg_placeholders)) {
+                $protected_head = strtr($protected_head, $svg_placeholders);
+            }
+            return $head_open . $protected_head . $head_close;
+        }, $html);
     }
 
     /**
@@ -3330,6 +3706,16 @@ Class Metasync_otto_html{
         // `data-otto-thing="x"` and misattribute that block to OTTO.
         $is_otto_attr = '/(^|\s)data-otto(\s*=|\s|$)/i';
 
+        // The Content Genius payload schema is marked by its class token,
+        // quote-or-space delimited so a hypothetical `metasync-ca-schema-x`
+        // class cannot match. It is the platform-authoritative copy of its
+        // types, so it ranks ABOVE OTTO in the fold below (OTTO in turn ranks
+        // above third-party plugin schema) — otherwise the live OTTO copy of
+        // the same type would evict the payload copy on the crawler-facing
+        // render path and the platform's per-publish schema would never reach
+        // the bots that decide rich results.
+        $is_ca_attr = '/(^|[\s\'"])metasync-ca-schema([\s\'"]|$)/i';
+
         // Blocks able to take part, and their entities in document order. An
         // entity is one addressable node: a flat block's document, one
         // `@graph` entry, or one node of a top-level array.
@@ -3352,6 +3738,9 @@ Class Metasync_otto_html{
             }
 
             $is_otto = preg_match($is_otto_attr, $attrs) === 1;
+            // Ownership rank for the fold below: 2 = Content Genius payload
+            // schema (platform-authoritative), 1 = OTTO, 0 = third-party.
+            $rank = (preg_match($is_ca_attr, $attrs) === 1) ? 2 : ($is_otto ? 1 : 0);
             $end     = $start + strlen($m[0][0]);
 
             // A trailing newline swallowed on full removal keeps the output tidy.
@@ -3362,7 +3751,7 @@ Class Metasync_otto_html{
                 $end_ws = $end + 1;
             }
 
-            $register = function (array $node) use (&$entities, $is_otto) {
+            $register = function (array $node) use (&$entities, $rank) {
                 // Keyed like metasync_otto_structured_entity_key(): @id first,
                 // @type tokens for the type fold. Entries with neither stay in
                 // their block but cannot collide, so they keep entity === null.
@@ -3371,7 +3760,7 @@ Class Metasync_otto_html{
                 if ($types === [] && $id === '') {
                     return null;
                 }
-                $entities[] = ['otto' => $is_otto, 'types' => $types, 'id' => $id, 'alive' => true];
+                $entities[] = ['rank' => $rank, 'types' => $types, 'id' => $id, 'alive' => true];
                 return count($entities) - 1;
             };
 
@@ -3401,7 +3790,7 @@ Class Metasync_otto_html{
         }
 
         foreach ($entities as $entity) {
-            if ($entity['otto']) {
+            if ($entity['rank'] === 1) { // an OTTO copy specifically; CA alone does not make the page ours to rewrite
                 $otto_present = true;
                 break;
             }
@@ -3437,14 +3826,16 @@ Class Metasync_otto_html{
             $alive = true;
 
             // The same real-world entity twice, whatever @type each copy carries.
+            // A higher-ranked copy (CA > OTTO > third-party) displaces the
+            // occupant; within the same rank the first copy stands.
             if ($entity['id'] !== '' && isset($by_id[$entity['id']])) {
                 $occupant = $by_id[$entity['id']];
-                if ($entity['otto'] && !$entities[$occupant]['otto']) {
+                if ($entity['rank'] > $entities[$occupant]['rank']) {
                     $entities[$occupant]['alive'] = false;
                     $release($occupant);
                     unset($by_id[$entity['id']]); // re-claimed below if the entity survives
                 } else {
-                    $alive = false; // first copy stands (OTTO's, or the earlier OTTO's)
+                    $alive = false; // first copy stands (same rank, or a higher-ranked occupant got here first)
                 }
             }
 
@@ -3454,28 +3845,33 @@ Class Metasync_otto_html{
                     if ($holders === []) {
                         continue;
                     }
-                    $otto_holder = false;
+                    $max_holder_rank = 0;
                     foreach ($holders as $holder) {
-                        if ($entities[$holder]['otto']) {
-                            $otto_holder = true;
-                            break;
+                        if ($entities[$holder]['rank'] > $max_holder_rank) {
+                            $max_holder_rank = $entities[$holder]['rank'];
                         }
                     }
-                    if ($otto_holder) {
-                        $alive = false; // an OTTO node already holds this token
+                    if ($max_holder_rank > $entity['rank'] || ($max_holder_rank === $entity['rank'] && $entity['rank'] > 0)) {
+                        // A same-or-higher-ranked channel already holds this
+                        // token. Within the OTTO and CA channels the first copy
+                        // stands (the rule the OTTO-only check always had);
+                        // third-party copies meeting third-party holders do not
+                        // die here (equal rank 0 falls through to coexist).
+                        $alive = false;
                         break;
                     }
-                    if ($entity['otto']) {
-                        // OTTO displaces every third-party holder of the token and
-                        // releases ALL their claims, not just this one — otherwise
-                        // tokens the evicted node held alone would stay blocked and
-                        // later, legitimate nodes of that type would lose.
+                    if ($entity['rank'] > $max_holder_rank) {
+                        // This copy outranks every current holder, so it
+                        // displaces them all and releases ALL their claims,
+                        // not just this one — otherwise tokens the evicted
+                        // nodes held alone would stay blocked and later,
+                        // legitimate nodes of that type would lose.
                         foreach ($holders as $holder) {
                             $entities[$holder]['alive'] = false;
                             $release($holder);
                         }
                     }
-                    // Third party meeting third-party holders: both stand.
+                    // Equal rank 0 (third party meeting third-party holders): both stand.
                 }
             }
 
@@ -3685,7 +4081,9 @@ Class Metasync_otto_html{
             'body'      => $this->dom->find('body', 0),
             'footer'    => $this->dom->find('footer', 0),
             'title'     => $this->dom->find('title', 0),
-            'imgs'      => $this->dom->find('img'),
+            # <image> too: Showit emits <image srcset="..."></image> instead
+            # of <img>. SVG <image> uses href, so it never yields a candidate.
+            'imgs'      => $this->dom->find('img, image'),
             'links'     => $this->dom->find('a'),
             'canonical' => $this->dom->find('link[rel="canonical"]', 0),
         ];
@@ -4088,13 +4486,13 @@ Class Metasync_otto_html{
                     }
 
                     $heading_type = preg_quote($heading['type'], '/');
-                    $current_value = trim(preg_replace('/\s+/', ' ', html_entity_decode($heading['current_value'], ENT_QUOTES, 'UTF-8')));
+                    $current_value = self::normalize_heading_text($heading['current_value']);
                     $recommended_value = htmlspecialchars($heading['recommended_value'], ENT_QUOTES, 'UTF-8');
 
                     $result_html = preg_replace_callback(
                         '/(<' . $heading_type . '(?:\s[^>]*)?>)(.*?)(<\/' . $heading_type . '>)/is',
                         function ($m) use ($current_value, $recommended_value) {
-                            $inner_text = trim(preg_replace('/\s+/', ' ', html_entity_decode(wp_strip_all_tags($m[2]), ENT_QUOTES, 'UTF-8')));
+                            $inner_text = self::normalize_heading_text(wp_strip_all_tags($m[2]));
                             if ($inner_text !== $current_value) {
                                 return $m[0];
                             }
@@ -4330,6 +4728,8 @@ Class Metasync_otto_html{
             '/[?&]amp;is_otto_page_fetch=1/',
             '/[?&]amp;otto_block_title=1/',
             '/[?&]amp;otto_block_desc=1/',
+            # Value is a comma list (may be %2C-encoded), e.g. name,og,twitter.
+            '/[?&](?:amp;)?otto_block_desc_tags=[A-Za-z0-9%,]*/',
         ];
         $html = preg_replace($patterns, '', $html);
 
